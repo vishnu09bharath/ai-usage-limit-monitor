@@ -1,45 +1,1308 @@
-import SwiftUI
 import AppKit
+import CryptoKit
+import Darwin
+import Foundation
+import Network
+import Security
 
-@main
-struct AntigravityUsageWatcherApp: App {
-    // 1. Link the AppDelegate to the SwiftUI App lifecycle
-    @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+    private var statusItem: NSStatusItem?
+    private let model = AppModel()
 
-    var body: some Scene {
-        // We still need a Scene, but it doesn't need to do anything
-        Settings {
-            EmptyView()
+    private let menu = NSMenu()
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        setupStatusBar()
+
+        model.onUpdate = { [weak self] in
+            self?.applyStatusBarPresentation()
+        }
+
+        Task {
+            await model.bootstrap()
+        }
+    }
+
+    private func setupStatusBar() {
+        let statusBar = NSStatusBar.system
+        statusItem = statusBar.statusItem(withLength: NSStatusItem.variableLength)
+
+        if let button = statusItem?.button {
+            button.image = NSImage(systemSymbolName: "gauge.with.needle", accessibilityDescription: "Antigravity Usage")
+            button.title = ""
+            button.toolTip = "Antigravity Usage"
+        }
+
+        menu.delegate = self
+        statusItem?.menu = menu
+
+        applyStatusBarPresentation()
+    }
+
+    private func applyStatusBarPresentation() {
+        guard let button = statusItem?.button else {
+            return
+        }
+
+        if let snapshot = model.snapshot, let primary = snapshot.primaryModel {
+            button.image = nil
+            button.title = "\(primary.shortName) \(primary.remainingPercent)%"
+            button.toolTip = snapshot.tooltipText
+
+            if primary.isExhausted || primary.remainingPercent < 15 {
+                button.contentTintColor = .systemRed
+            } else if primary.remainingPercent < 25 {
+                button.contentTintColor = .systemOrange
+            } else {
+                button.contentTintColor = nil
+            }
+
+            return
+        }
+
+        button.contentTintColor = nil
+
+        if model.isSignedIn {
+            button.image = NSImage(systemSymbolName: "gauge.with.needle", accessibilityDescription: "Antigravity Usage")
+            button.title = ""
+
+            if model.isRefreshing {
+                button.toolTip = "Syncing…"
+            } else if let lastError = model.lastErrorMessage {
+                button.toolTip = lastError
+            } else {
+                button.toolTip = "Signed in"
+            }
+        } else {
+            button.image = NSImage(systemSymbolName: "person.crop.circle.badge.exclamationmark", accessibilityDescription: "Sign in")
+            button.title = ""
+            button.toolTip = "Sign in to show Antigravity usage"
+        }
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        rebuildMenu()
+    }
+
+    private func rebuildMenu() {
+        menu.removeAllItems()
+
+        if !model.isSignedIn {
+            menu.addItem(NSMenuItem(title: "Sign in with Google…", action: #selector(signIn), keyEquivalent: "s"))
+            menu.addItem(NSMenuItem.separator())
+            menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+            return
+        }
+
+        menu.addItem(NSMenuItem(title: "Open Dashboard…", action: #selector(openDashboard), keyEquivalent: "d"))
+        menu.addItem(NSMenuItem(title: "Refresh Now", action: #selector(refreshNow), keyEquivalent: "r"))
+
+        if let pinned = model.pinnedModelId {
+            let item = NSMenuItem(title: "Unpin Model (\(pinned))", action: #selector(unpinModel), keyEquivalent: "u")
+            menu.addItem(item)
+        }
+
+        menu.addItem(NSMenuItem.separator())
+
+        if let snapshot = model.snapshot {
+            if let creditsLine = snapshot.promptCreditsLine {
+                let credits = NSMenuItem(title: creditsLine, action: nil, keyEquivalent: "")
+                credits.isEnabled = false
+                menu.addItem(credits)
+                menu.addItem(NSMenuItem.separator())
+            }
+
+            for quota in snapshot.modelsSortedForDisplay {
+                let title = "\(quota.label): \(quota.remainingPercent)%\(quota.timeUntilReset.map { " · \($0)" } ?? "")"
+                let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+                item.isEnabled = false
+                menu.addItem(item)
+            }
+
+            if !snapshot.models.isEmpty {
+                menu.addItem(NSMenuItem.separator())
+                let pinMenu = NSMenu(title: "Pin Model")
+                for quota in snapshot.models {
+                    let item = NSMenuItem(title: quota.label, action: #selector(pinModel(_:)), keyEquivalent: "")
+                    item.representedObject = quota.modelId
+                    pinMenu.addItem(item)
+                }
+                let pinRoot = NSMenuItem(title: "Pin Model", action: nil, keyEquivalent: "")
+                menu.setSubmenu(pinMenu, for: pinRoot)
+                menu.addItem(pinRoot)
+            }
+        } else {
+            let item = NSMenuItem(title: model.isRefreshing ? "Loading…" : "No data yet", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
+        }
+
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "Sign Out", action: #selector(signOut), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+    }
+
+    @objc private func signIn() {
+        Task {
+            await model.signIn()
+        }
+    }
+
+    @objc private func signOut() {
+        Task {
+            await model.signOut()
+        }
+    }
+
+    @objc private func refreshNow() {
+        Task {
+            await model.refreshNow()
+        }
+    }
+
+    @objc private func openDashboard() {
+        // TODO: Implement SwiftUI dashboard window.
+    }
+
+    @objc private func pinModel(_ sender: NSMenuItem) {
+        guard let modelId = sender.representedObject as? String else {
+            return
+        }
+        model.setPinnedModelId(modelId)
+    }
+
+    @objc private func unpinModel() {
+        model.setPinnedModelId(nil)
+    }
+}
+
+// MARK: - App Model
+
+@MainActor
+final class AppModel {
+    var onUpdate: (() -> Void)?
+
+    private(set) var isRefreshing = false {
+        didSet { onUpdate?() }
+    }
+
+    private(set) var lastErrorMessage: String? {
+        didSet { onUpdate?() }
+    }
+
+    private(set) var snapshot: QuotaSnapshot? {
+        didSet { onUpdate?() }
+    }
+
+    private var authState: AuthState? {
+        didSet { onUpdate?() }
+    }
+
+    private var currentAccessToken: AccessToken? = nil
+
+    private let tokenStore = TokenStore()
+    private let oauth = OAuthController()
+    private let languageServer = LanguageServerSupervisor()
+
+    var isSignedIn: Bool {
+        authState != nil
+    }
+
+    var pinnedModelId: String? {
+        UserDefaults.standard.string(forKey: UserDefaultsKeys.pinnedModelId)
+    }
+
+    func setPinnedModelId(_ modelId: String?) {
+        if let modelId {
+            UserDefaults.standard.set(modelId, forKey: UserDefaultsKeys.pinnedModelId)
+        } else {
+            UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.pinnedModelId)
+        }
+
+        if let snapshot {
+            self.snapshot = snapshot.withPinnedModelId(modelId)
+        }
+    }
+
+    func bootstrap() async {
+        authState = tokenStore.loadAuthState()
+        if authState != nil {
+            await refreshNow()
+        }
+    }
+
+    func signIn() async {
+        lastErrorMessage = nil
+        isRefreshing = true
+        defer { isRefreshing = false }
+
+        do {
+            let newState = try await oauth.signIn()
+            tokenStore.saveAuthState(newState)
+            authState = newState
+            currentAccessToken = nil
+
+            await refreshNow()
+        } catch {
+            lastErrorMessage = "Sign-in failed"
+        }
+    }
+
+    func signOut() async {
+        lastErrorMessage = nil
+        snapshot = nil
+        currentAccessToken = nil
+        authState = nil
+
+        tokenStore.deleteAuthState()
+        await languageServer.stop()
+    }
+
+    func refreshNow() async {
+        guard let authState else {
+            return
+        }
+
+        lastErrorMessage = nil
+        isRefreshing = true
+        defer { isRefreshing = false }
+
+        do {
+            let accessToken = try await oauth.getValidAccessToken(using: authState, cached: currentAccessToken)
+            currentAccessToken = accessToken
+
+            let connection = try await languageServer.ensureRunning(apiKey: accessToken.token)
+
+            // Best-effort token sync. If this fails, GetUserStatus may still succeed.
+            try? await connection.client.saveOAuthTokenInfo(accessToken: accessToken, refreshToken: authState.refreshToken)
+
+            let statusData = try await connection.client.getUserStatus()
+            let parsed = try QuotaParser.parseUserStatusJSON(statusData)
+            snapshot = parsed.withPinnedModelId(pinnedModelId)
+
+        } catch {
+            snapshot = nil
+            lastErrorMessage = "Failed to fetch quota"
         }
     }
 }
 
-class AppDelegate: NSObject, NSApplicationDelegate {
-    var statusItem: NSStatusItem?
+// MARK: - Persistence
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        setupStatusBar()
-    }
+enum UserDefaultsKeys {
+    static let pinnedModelId = "pinnedModelId"
+}
 
-    func setupStatusBar() {
-        let statusBar = NSStatusBar.system
-        // Using variableLength allows the icon to fit its own width
-        statusItem = statusBar.statusItem(withLength: NSStatusItem.variableLength)
+struct AuthState: Codable {
+    let refreshToken: String
+    let tokenType: String
+    let expiryDateSeconds: Int
+}
 
-        if let button = statusItem?.button {
-            // SF Symbols work best here
-            button.image = NSImage(systemSymbolName: "gauge.with.needle", accessibilityDescription: "Usage Watcher")
+final class TokenStore {
+    private static let keychainAccount = "authStateV1"
+
+    func loadAuthState() -> AuthState? {
+        guard let json = KeychainStore.loadString(account: Self.keychainAccount) else {
+            return nil
         }
 
-        let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "Check Usage", action: #selector(dummyAction), keyEquivalent: "c"))
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Quit Angravity", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
-
-        statusItem?.menu = menu
+        do {
+            return try JSONDecoder().decode(AuthState.self, from: Data(json.utf8))
+        } catch {
+            return nil
+        }
     }
 
-    @objc func dummyAction() {
-        print("Usage check triggered!")
+    func saveAuthState(_ state: AuthState) {
+        do {
+            let data = try JSONEncoder().encode(state)
+            if let json = String(data: data, encoding: .utf8) {
+                try KeychainStore.saveString(json, account: Self.keychainAccount)
+            }
+        } catch {
+            // Intentionally ignore; app can still function for current session.
+        }
     }
+
+    func deleteAuthState() {
+        try? KeychainStore.delete(account: Self.keychainAccount)
+    }
+}
+
+// MARK: - OAuth
+
+struct AccessToken {
+    let token: String
+    let tokenType: String
+    let expiryDate: Date
+
+    var isExpiringSoon: Bool {
+        expiryDate.timeIntervalSinceNow < 60
+    }
+}
+
+final class OAuthController {
+    private let tokenEndpoint = URL(string: "https://oauth2.googleapis.com/token")!
+    private let authEndpoint = URL(string: "https://accounts.google.com/o/oauth2/v2/auth")!
+
+    func signIn() async throws -> AuthState {
+        let verifier = PKCE.verifier()
+        let challenge = PKCE.challengeS256(for: verifier)
+        let state = PKCE.state()
+
+        let server = OAuthCallbackServer(expectedState: state)
+        let redirectURL = try await server.start()
+
+        guard var components = URLComponents(url: authEndpoint, resolvingAgainstBaseURL: false) else {
+            throw OAuthError.invalidAuthURL
+        }
+
+        components.queryItems = [
+            URLQueryItem(name: "client_id", value: AntigravityConfig.clientId),
+            URLQueryItem(name: "redirect_uri", value: redirectURL.absoluteString),
+            URLQueryItem(name: "response_type", value: "code"),
+            URLQueryItem(name: "scope", value: AntigravityConfig.scopes.joined(separator: " ")),
+            URLQueryItem(name: "code_challenge", value: challenge),
+            URLQueryItem(name: "code_challenge_method", value: "S256"),
+            URLQueryItem(name: "access_type", value: "offline"),
+            URLQueryItem(name: "prompt", value: "consent"),
+            URLQueryItem(name: "state", value: state),
+        ]
+
+        guard let url = components.url else {
+            throw OAuthError.invalidAuthURL
+        }
+
+        _ = await MainActor.run {
+            NSWorkspace.shared.open(url)
+        }
+
+        let callback = try await server.waitForCallback(timeoutSeconds: 180)
+
+        let token = try await exchangeCode(code: callback.code, codeVerifier: verifier, redirectURL: redirectURL)
+
+        guard let refresh = token.refreshToken, !refresh.isEmpty else {
+            throw OAuthError.missingRefreshToken
+        }
+
+        let expiresIn = token.expiresIn ?? 0
+        let expirySeconds = Int(Date().timeIntervalSince1970) + expiresIn
+
+        return AuthState(
+            refreshToken: refresh,
+            tokenType: token.tokenType ?? "Bearer",
+            expiryDateSeconds: expirySeconds
+        )
+    }
+
+    func getValidAccessToken(using auth: AuthState, cached: AccessToken?) async throws -> AccessToken {
+        if let cached, !cached.isExpiringSoon {
+            return cached
+        }
+
+        let token = try await refresh(refreshToken: auth.refreshToken)
+        guard let accessToken = token.accessToken, !accessToken.isEmpty else {
+            throw OAuthError.missingAccessToken
+        }
+
+        let expiresIn = token.expiresIn ?? 0
+        let expiryDate = Date().addingTimeInterval(TimeInterval(expiresIn))
+
+        return AccessToken(
+            token: accessToken,
+            tokenType: token.tokenType ?? "Bearer",
+            expiryDate: expiryDate
+        )
+    }
+
+    private func exchangeCode(code: String, codeVerifier: String, redirectURL: URL) async throws -> OAuthTokenResponse {
+        var request = URLRequest(url: tokenEndpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+
+        let body = FormURLEncoder.encode([
+            "client_id": AntigravityConfig.clientId,
+            "client_secret": AntigravityConfig.clientSecret,
+            "grant_type": "authorization_code",
+            "code": code,
+            "code_verifier": codeVerifier,
+            "redirect_uri": redirectURL.absoluteString,
+        ])
+
+        request.httpBody = Data(body.utf8)
+
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let decoded = try JSONDecoder().decode(OAuthTokenResponse.self, from: data)
+
+        if let error = decoded.error {
+            throw OAuthError.remoteError(error)
+        }
+
+        guard let access = decoded.accessToken, !access.isEmpty else {
+            throw OAuthError.missingAccessToken
+        }
+
+        return OAuthTokenResponse(
+            accessToken: access,
+            tokenType: decoded.tokenType ?? "Bearer",
+            expiresIn: decoded.expiresIn ?? 0,
+            refreshToken: decoded.refreshToken,
+            error: nil
+        )
+    }
+
+    private func refresh(refreshToken: String) async throws -> OAuthTokenResponse {
+        var request = URLRequest(url: tokenEndpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+
+        let body = FormURLEncoder.encode([
+            "client_id": AntigravityConfig.clientId,
+            "client_secret": AntigravityConfig.clientSecret,
+            "grant_type": "refresh_token",
+            "refresh_token": refreshToken,
+        ])
+
+        request.httpBody = Data(body.utf8)
+
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let decoded = try JSONDecoder().decode(OAuthTokenResponse.self, from: data)
+
+        if let error = decoded.error {
+            throw OAuthError.remoteError(error)
+        }
+
+        guard let access = decoded.accessToken, !access.isEmpty else {
+            throw OAuthError.missingAccessToken
+        }
+
+        return OAuthTokenResponse(
+            accessToken: access,
+            tokenType: decoded.tokenType ?? "Bearer",
+            expiresIn: decoded.expiresIn ?? 0,
+            refreshToken: decoded.refreshToken,
+            error: nil
+        )
+    }
+}
+
+enum OAuthError: Error {
+    case invalidAuthURL
+    case missingRefreshToken
+    case missingAccessToken
+    case remoteError(String)
+}
+
+struct OAuthTokenResponse: Codable {
+    let accessToken: String?
+    let tokenType: String?
+    let expiresIn: Int?
+    let refreshToken: String?
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case accessToken = "access_token"
+        case tokenType = "token_type"
+        case expiresIn = "expires_in"
+        case refreshToken = "refresh_token"
+        case error
+    }
+}
+
+enum FormURLEncoder {
+    static func encode(_ parameters: [String: String]) -> String {
+        parameters
+            .map { key, value in
+                let escapedKey = key.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? key
+                let escapedValue = value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value
+                return "\(escapedKey)=\(escapedValue)"
+            }
+            .sorted()
+            .joined(separator: "&")
+    }
+}
+
+enum PKCE {
+    static func verifier() -> String {
+        let bytes = (0..<32).map { _ in UInt8.random(in: 0...255) }
+        return base64url(Data(bytes))
+    }
+
+    static func challengeS256(for verifier: String) -> String {
+        let hashed = SHA256.hash(data: Data(verifier.utf8))
+        return base64url(Data(hashed))
+    }
+
+    static func state() -> String {
+        base64url(Data(UUID().uuidString.utf8))
+    }
+
+    private static func base64url(_ data: Data) -> String {
+        data.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+}
+
+struct OAuthCallback {
+    let code: String
+}
+
+final class OAuthCallbackServer {
+    private let expectedState: String
+
+    private var listener: NWListener?
+    private var continuation: CheckedContinuation<OAuthCallback, Error>?
+
+    init(expectedState: String) {
+        self.expectedState = expectedState
+    }
+
+    func start() async throws -> URL {
+        let parameters = NWParameters.tcp
+        parameters.allowLocalEndpointReuse = true
+
+        if let loopback = IPv4Address("127.0.0.1") {
+            parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(loopback), port: .any)
+        }
+
+        let listener = try NWListener(using: parameters)
+        self.listener = listener
+
+        listener.newConnectionHandler = { [weak self] connection in
+            self?.handle(connection)
+        }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            listener.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    guard let port = listener.port?.rawValue else {
+                        continuation.resume(throwing: OAuthError.invalidAuthURL)
+                        return
+                    }
+                    continuation.resume(returning: URL(string: "http://127.0.0.1:\(port)/oauth-callback")!)
+                case .failed:
+                    continuation.resume(throwing: OAuthError.invalidAuthURL)
+                default:
+                    break
+                }
+            }
+
+            listener.start(queue: DispatchQueue(label: "oauth.callback.listener"))
+        }
+    }
+
+    func waitForCallback(timeoutSeconds: TimeInterval) async throws -> OAuthCallback {
+        try await withThrowingTaskGroup(of: OAuthCallback.self) { group in
+            group.addTask { [weak self] in
+                try await withCheckedThrowingContinuation { continuation in
+                    self?.continuation = continuation
+                }
+            }
+
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
+                throw OAuthError.invalidAuthURL
+            }
+
+            defer {
+                group.cancelAll()
+                stop()
+            }
+
+            guard let result = try await group.next() else {
+                throw OAuthError.invalidAuthURL
+            }
+
+            return result
+        }
+    }
+
+    private func stop() {
+        listener?.cancel()
+        listener = nil
+    }
+
+    private func handle(_ connection: NWConnection) {
+        connection.start(queue: DispatchQueue(label: "oauth.callback.connection"))
+
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 32_768) { [weak self] content, _, _, _ in
+            guard let self else {
+                connection.cancel()
+                return
+            }
+
+            let requestText = String(decoding: content ?? Data(), as: UTF8.self)
+
+            let firstLine = requestText.split(separator: "\n", maxSplits: 1).first.map(String.init) ?? ""
+            let parts = firstLine.split(separator: " ")
+
+            let pathPart = parts.count >= 2 ? String(parts[1]) : ""
+            let components = URLComponents(string: "http://127.0.0.1\(pathPart)")
+
+            let code = components?.queryItems?.first(where: { $0.name == "code" })?.value
+            let state = components?.queryItems?.first(where: { $0.name == "state" })?.value
+
+            let ok = (code != nil && state == self.expectedState)
+            let html: String
+
+            if ok {
+                html = """
+                <html><body style=\"font-family: -apple-system; padding: 24px;\">
+                <h2>Signed in</h2>
+                <p>You can close this window and return to the menu bar app.</p>
+                </body></html>
+                """
+            } else {
+                html = """
+                <html><body style=\"font-family: -apple-system; padding: 24px;\">
+                <h2>Sign-in failed</h2>
+                <p>Please return to the app and try again.</p>
+                </body></html>
+                """
+            }
+
+            let response = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(html.utf8.count)\r\nConnection: close\r\n\r\n\(html)"
+            connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in
+                connection.cancel()
+            })
+
+            guard let code, let state, state == self.expectedState else {
+                self.continuation?.resume(throwing: OAuthError.invalidAuthURL)
+                self.continuation = nil
+                return
+            }
+
+            self.continuation?.resume(returning: OAuthCallback(code: code))
+            self.continuation = nil
+        }
+    }
+}
+
+// MARK: - Language Server
+
+struct LanguageServerConnection {
+    let port: UInt16
+    let csrfToken: String
+    let client: LanguageServerClient
+}
+
+enum ProcessKiller {
+    static func forceKill(_ process: Process) {
+        _ = kill(process.processIdentifier, SIGKILL)
+    }
+}
+
+actor LanguageServerSupervisor {
+    private var process: Process?
+    private var connection: LanguageServerConnection?
+    private var currentApiKey: String?
+
+    func ensureRunning(apiKey: String) async throws -> LanguageServerConnection {
+        if let connection, process?.isRunning == true, currentApiKey == apiKey {
+            return connection
+        }
+
+        await stop()
+
+        let port = try allocatePort()
+        let csrf = UUID().uuidString
+
+        let metadata = ProtobufBuilders.buildMetadata(apiKey: apiKey)
+
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: AntigravityConfig.languageServerPath)
+        proc.arguments = [
+            "-server_port", "\(port)",
+            "-random_port=false",
+            "-enable_lsp=false",
+            "-csrf_token", csrf,
+            "-cloud_code_endpoint", AntigravityConfig.cloudCodeEndpoint,
+            "-gemini_dir", AntigravityConfig.geminiDir,
+            "-app_data_dir", AntigravityConfig.appDataDir,
+        ]
+
+        let stdinPipe = Pipe()
+        proc.standardInput = stdinPipe
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
+
+        try proc.run()
+
+        stdinPipe.fileHandleForWriting.write(metadata)
+        try? stdinPipe.fileHandleForWriting.close()
+
+        let client = try LanguageServerClient(port: port, csrfToken: csrf)
+
+        // Wait briefly for readiness.
+        for _ in 0..<50 {
+            do {
+                _ = try await client.getStatus()
+                break
+            } catch {
+                try await Task.sleep(nanoseconds: 100_000_000)
+            }
+        }
+
+        let conn = LanguageServerConnection(port: port, csrfToken: csrf, client: client)
+        process = proc
+        connection = conn
+        currentApiKey = apiKey
+        return conn
+    }
+
+    func stop() async {
+        if let process, process.isRunning {
+            process.terminate()
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            if process.isRunning {
+                ProcessKiller.forceKill(process)
+            }
+        }
+
+        process = nil
+        connection = nil
+        currentApiKey = nil
+    }
+
+    private func allocatePort() throws -> UInt16 {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw URLError(.cannotCreateFile)
+        }
+
+        defer {
+            _ = close(fd)
+        }
+
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.stride)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = in_port_t(0).bigEndian
+        addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+
+        var sockAddr = addr
+        let bindResult = withUnsafePointer(to: &sockAddr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { saPtr in
+                Darwin.bind(fd, saPtr, socklen_t(MemoryLayout<sockaddr_in>.stride))
+            }
+        }
+
+        guard bindResult == 0 else {
+            throw URLError(.cannotCreateFile)
+        }
+
+        var outAddr = sockaddr_in()
+        var outLen = socklen_t(MemoryLayout<sockaddr_in>.stride)
+        let nameResult = withUnsafeMutablePointer(to: &outAddr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { saPtr in
+                getsockname(fd, saPtr, &outLen)
+            }
+        }
+
+        guard nameResult == 0 else {
+            throw URLError(.cannotCreateFile)
+        }
+
+        return UInt16(bigEndian: outAddr.sin_port)
+    }
+}
+
+final class LanguageServerClient: NSObject {
+    private let baseURL: URL
+    private let csrfToken: String
+
+    private let session: URLSession
+
+    init(port: UInt16, csrfToken: String) throws {
+        self.baseURL = URL(string: "https://127.0.0.1:\(port)")!
+        self.csrfToken = csrfToken
+
+        let pinnedCA = try PinnedCA()
+        let delegate = PinnedCASessionDelegate(pinnedCA: pinnedCA)
+        self.session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
+
+        super.init()
+    }
+
+    func getStatus() async throws -> Data {
+        try await call(method: "GetStatus", jsonBody: Data("{}".utf8))
+    }
+
+    func saveOAuthTokenInfo(accessToken: AccessToken, refreshToken: String) async throws {
+        let expirySeconds = Int(accessToken.expiryDate.timeIntervalSince1970)
+        let payload: [String: Any] = [
+            "tokenInfo": [
+                "accessToken": accessToken.token,
+                "tokenType": accessToken.tokenType,
+                "refreshToken": refreshToken,
+                "expiry": ["seconds": expirySeconds],
+            ],
+        ]
+
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        _ = try await call(method: "SaveOAuthTokenInfo", jsonBody: body)
+    }
+
+    func getUserStatus() async throws -> Data {
+        let payload: [String: Any] = [
+            "metadata": [
+                "ideName": "antigravity",
+                "extensionName": "google.antigravity",
+                "locale": "en",
+            ],
+        ]
+
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        return try await call(method: "GetUserStatus", jsonBody: body)
+    }
+
+    private func call(method: String, jsonBody: Data) async throws -> Data {
+        var request = URLRequest(url: baseURL.appendingPathComponent("/exa.language_server_pb.LanguageServerService/\(method)"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 10
+
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("1", forHTTPHeaderField: "Connect-Protocol-Version")
+        request.setValue(csrfToken, forHTTPHeaderField: "X-Codeium-Csrf-Token")
+
+        request.httpBody = jsonBody
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw URLError(.badServerResponse)
+        }
+
+        guard http.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+
+        return data
+    }
+}
+
+// MARK: - TLS pinning
+
+struct PinnedCA {
+    let certificate: SecCertificate
+
+    init() throws {
+        let pem = try String(contentsOfFile: AntigravityConfig.languageServerCertPath, encoding: .utf8)
+        let der = try PEM.decodeFirstCertificate(pem)
+        guard let cert = SecCertificateCreateWithData(nil, der as CFData) else {
+            throw URLError(.cannotDecodeContentData)
+        }
+        self.certificate = cert
+    }
+}
+
+final class PinnedCASessionDelegate: NSObject, URLSessionDelegate {
+    private let pinnedCA: PinnedCA
+
+    init(pinnedCA: PinnedCA) {
+        self.pinnedCA = pinnedCA
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+              let trust = challenge.protectionSpace.serverTrust
+        else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+
+        SecTrustSetAnchorCertificates(trust, [pinnedCA.certificate] as CFArray)
+        SecTrustSetAnchorCertificatesOnly(trust, true)
+
+        var error: CFError?
+        let ok = SecTrustEvaluateWithError(trust, &error)
+
+        if ok {
+            completionHandler(.useCredential, URLCredential(trust: trust))
+        } else {
+            completionHandler(.cancelAuthenticationChallenge, nil)
+        }
+    }
+}
+
+enum PEM {
+    static func decodeFirstCertificate(_ pem: String) throws -> Data {
+        let lines = pem
+            .split(separator: "\n")
+            .map(String.init)
+
+        var b64 = ""
+        var inCert = false
+
+        for line in lines {
+            if line.contains("BEGIN CERTIFICATE") {
+                inCert = true
+                continue
+            }
+            if line.contains("END CERTIFICATE") {
+                break
+            }
+            if inCert {
+                b64 += line.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+
+        guard let data = Data(base64Encoded: b64) else {
+            throw URLError(.cannotDecodeContentData)
+        }
+        return data
+    }
+}
+
+// MARK: - Protobuf handshake (stdin)
+
+enum ProtobufBuilders {
+    static func buildMetadata(apiKey: String) -> Data {
+        // Field numbers inferred in scripts/antigravity_ls_probe.py
+        var out = Data()
+        out += Proto.string(field: 1, "antigravity")
+        out += Proto.string(field: 3, apiKey)
+        out += Proto.string(field: 4, "en-US")
+        out += Proto.string(field: 5, "macOS")
+        out += Proto.string(field: 7, "0")
+        out += Proto.string(field: 12, "google.antigravity")
+        out += Proto.string(field: 17, AntigravityConfig.extensionPath)
+        out += Proto.string(field: 24, "usagewatcher")
+        out += Proto.string(field: 25, "menubar")
+        return out
+    }
+}
+
+enum Proto {
+    static func varint(_ value: UInt64) -> Data {
+        var n = value
+        var bytes = [UInt8]()
+        while true {
+            let b = UInt8(n & 0x7F)
+            n >>= 7
+            if n != 0 {
+                bytes.append(b | 0x80)
+            } else {
+                bytes.append(b)
+                break
+            }
+        }
+        return Data(bytes)
+    }
+
+    static func key(field: Int, wire: Int) -> Data {
+        varint(UInt64((field << 3) | wire))
+    }
+
+    static func lengthDelimited(field: Int, payload: Data) -> Data {
+        key(field: field, wire: 2) + varint(UInt64(payload.count)) + payload
+    }
+
+    static func string(field: Int, _ value: String) -> Data {
+        lengthDelimited(field: field, payload: Data(value.utf8))
+    }
+}
+
+// MARK: - Quota parsing
+
+struct ModelQuota: Identifiable {
+    var id: String { modelId }
+
+    let label: String
+    let modelId: String
+    let remainingPercent: Int
+    let usedPercent: Int
+    let isExhausted: Bool
+    let resetTime: Date?
+    let timeUntilReset: String?
+
+    var shortName: String {
+        QuotaFormatting.shortName(label)
+    }
+}
+
+struct PromptCredits {
+    let available: Int
+    let monthly: Int
+    let usedPercent: Int
+    let remainingPercent: Int
+}
+
+struct QuotaSnapshot {
+    let timestamp: Date
+    let promptCredits: PromptCredits?
+    let models: [ModelQuota]
+
+    let pinnedModelId: String?
+
+    var primaryModel: ModelQuota? {
+        modelsSortedForDisplay.first
+    }
+
+    var modelsSortedForDisplay: [ModelQuota] {
+        guard let pinnedModelId else {
+            return models.sorted { $0.remainingPercent < $1.remainingPercent }
+        }
+
+        return models.sorted { a, b in
+            if a.modelId == pinnedModelId, b.modelId != pinnedModelId { return true }
+            if a.modelId != pinnedModelId, b.modelId == pinnedModelId { return false }
+            return a.remainingPercent < b.remainingPercent
+        }
+    }
+
+    var promptCreditsLine: String? {
+        guard let promptCredits else {
+            return nil
+        }
+
+        return "Credits: \(promptCredits.available.formatted()) / \(promptCredits.monthly.formatted())"
+    }
+
+    var tooltipText: String {
+        var lines = [String]()
+        for model in modelsSortedForDisplay {
+            let active = model.modelId == pinnedModelId ? "› " : "  "
+            let reset = model.timeUntilReset.map { " · \($0)" } ?? ""
+            lines.append("\(active)\(model.label): \(model.remainingPercent)%\(reset)")
+        }
+
+        if let promptCreditsLine {
+            lines.append("")
+            lines.append(promptCreditsLine)
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    func withPinnedModelId(_ pinnedModelId: String?) -> QuotaSnapshot {
+        QuotaSnapshot(timestamp: timestamp, promptCredits: promptCredits, models: models, pinnedModelId: pinnedModelId)
+    }
+}
+
+enum QuotaParser {
+    static func parseUserStatusJSON(_ data: Data) throws -> QuotaSnapshot {
+        let obj = try JSONSerialization.jsonObject(with: data)
+
+        let root = obj as? [String: Any] ?? [:]
+        let userStatus = (root["userStatus"] as? [String: Any]) ?? root
+
+        let planStatus = userStatus["planStatus"] as? [String: Any]
+        let planInfo = (planStatus?["planInfo"] as? [String: Any])
+
+        var promptCredits: PromptCredits? = nil
+        if let planStatus {
+            let available = Int(truncating: (planStatus["availablePromptCredits"] as? NSNumber) ?? 0)
+            let monthly = Int(truncating: (planInfo?["monthlyPromptCredits"] as? NSNumber) ?? 0)
+            if monthly > 0 {
+                let used = max(0, monthly - available)
+                promptCredits = PromptCredits(
+                    available: available,
+                    monthly: monthly,
+                    usedPercent: Int((Double(used) / Double(monthly) * 100).rounded()),
+                    remainingPercent: Int((Double(available) / Double(monthly) * 100).rounded())
+                )
+            }
+        }
+
+        let cascade = userStatus["cascadeModelConfigData"] as? [String: Any]
+        let rawModels = cascade?["clientModelConfigs"] as? [Any] ?? []
+
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        var models: [ModelQuota] = []
+        models.reserveCapacity(rawModels.count)
+
+        for raw in rawModels {
+            guard let dict = raw as? [String: Any] else { continue }
+            guard let quotaInfo = dict["quotaInfo"] as? [String: Any] else { continue }
+
+            let label = (dict["label"] as? String) ?? "Unknown Model"
+
+            var modelId = "unknown"
+            if let modelOrAlias = dict["modelOrAlias"] as? [String: Any] {
+                if let model = modelOrAlias["model"] as? String {
+                    modelId = model
+                } else if let alias = modelOrAlias["alias"] as? String {
+                    modelId = alias
+                }
+            }
+
+            let remainingFraction = (quotaInfo["remainingFraction"] as? NSNumber)?.doubleValue ?? 1
+            let remainingPercent = Int((remainingFraction * 100).rounded())
+            let usedPercent = max(0, 100 - remainingPercent)
+            let isExhausted = remainingFraction == 0
+
+            var resetTime: Date? = nil
+            var timeUntilReset: String? = nil
+
+            if let resetString = quotaInfo["resetTime"] as? String {
+                let parsed = iso.date(from: resetString) ?? ISO8601DateFormatter().date(from: resetString)
+                resetTime = parsed
+                if let resetTime {
+                    timeUntilReset = QuotaFormatting.formatTimeUntilReset(resetTime)
+                }
+            }
+
+            models.append(
+                ModelQuota(
+                    label: label,
+                    modelId: modelId,
+                    remainingPercent: remainingPercent,
+                    usedPercent: usedPercent,
+                    isExhausted: isExhausted,
+                    resetTime: resetTime,
+                    timeUntilReset: timeUntilReset
+                )
+            )
+        }
+
+        return QuotaSnapshot(timestamp: Date(), promptCredits: promptCredits, models: models, pinnedModelId: nil)
+    }
+}
+
+enum QuotaFormatting {
+    static func shortName(_ label: String) -> String {
+        if label.contains("Claude") {
+            if label.contains("Sonnet") { return "Sonnet" }
+            if label.contains("Opus") { return "Opus" }
+            if label.contains("Haiku") { return "Haiku" }
+            return "Claude"
+        }
+        if label.contains("Gemini") {
+            if label.contains("Pro") { return "Pro" }
+            if label.contains("Flash") { return "Flash" }
+            return "Gemini"
+        }
+        if label.contains("GPT") || label.contains("O3") || label.contains("O1") {
+            return "GPT"
+        }
+
+        return label.split(separator: " ").first.map { String($0.prefix(6)) } ?? "AG"
+    }
+
+    static func formatTimeUntilReset(_ resetTime: Date) -> String {
+        let ms = resetTime.timeIntervalSinceNow
+        if ms <= 0 {
+            return "Ready"
+        }
+        let mins = Int(ceil(ms / 60))
+        if mins < 60 {
+            return "\(mins)m"
+        }
+        let hours = mins / 60
+        let remain = mins % 60
+        return "\(hours)h \(remain)m"
+    }
+}
+
+// MARK: - Keychain
+
+enum KeychainStore {
+    private static let service = "com.google.antigravity.usagewatcher"
+
+    static func loadString(account: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        guard status == errSecSuccess else { return nil }
+        guard let data = item as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func saveString(_ value: String, account: String) throws {
+        let data = Data(value.utf8)
+
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+
+        let update: [String: Any] = [
+            kSecValueData as String: data,
+        ]
+
+        let status = SecItemUpdate(query as CFDictionary, update as CFDictionary)
+        if status == errSecSuccess {
+            return
+        }
+
+        if status == errSecItemNotFound {
+            var add = query
+            add[kSecValueData as String] = data
+            let addStatus = SecItemAdd(add as CFDictionary, nil)
+            if addStatus == errSecSuccess {
+                return
+            }
+            throw KeychainError(status: addStatus)
+        }
+
+        throw KeychainError(status: status)
+    }
+
+    static func delete(account: String) throws {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        if status == errSecSuccess || status == errSecItemNotFound {
+            return
+        }
+        throw KeychainError(status: status)
+    }
+
+    struct KeychainError: Error, CustomStringConvertible {
+        let status: OSStatus
+
+        var description: String {
+            if let message = SecCopyErrorMessageString(status, nil) as String? {
+                return message
+            }
+            return "Keychain error (status=\(status))"
+        }
+    }
+}
+
+// MARK: - Configuration
+
+enum AntigravityConfig {
+    // From /Users/shady/github/shekohex/opencode-antigravity-auth/src/constants.ts
+    static let clientId = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+    static let clientSecret = "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"
+
+    static let scopes: [String] = [
+        "https://www.googleapis.com/auth/cloud-platform",
+        "https://www.googleapis.com/auth/userinfo.email",
+        "https://www.googleapis.com/auth/userinfo.profile",
+        "https://www.googleapis.com/auth/cclog",
+        "https://www.googleapis.com/auth/experimentsandconfigs",
+    ]
+
+    static let cloudCodeEndpoint = "https://daily-cloudcode-pa.sandbox.googleapis.com"
+    static let geminiDir = (FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".gemini").path)
+    static let appDataDir = "antigravity"
+
+    static let languageServerPath = "/Applications/Antigravity.app/Contents/Resources/app/extensions/antigravity/bin/language_server_macos_arm"
+    static let languageServerCertPath = "/Applications/Antigravity.app/Contents/Resources/app/extensions/antigravity/dist/languageServer/cert.pem"
+    static let extensionPath = "/Applications/Antigravity.app/Contents/Resources/app/extensions/antigravity"
 }
