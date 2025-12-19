@@ -328,13 +328,19 @@ def _build_get_user_status_request(metadata: bytes) -> bytes:
     return _msg(1, metadata)
 
 
-def _curl_post(path: str, body: bytes) -> tuple[int, str, bytes]:
+def _curl_post(
+    path: str, body: bytes, use_json: bool = False
+) -> tuple[int, str, bytes]:
     """Call Connect unary endpoint (HTTP/2 + TLS).
 
     Returns: (status_code, response_headers_text, response_body_bytes)
 
     Connect unary (binary) uses Content-Type: application/proto.
+    If use_json=True, uses application/json (body must be empty or valid JSON).
     """
+
+    content_type = "application/json" if use_json else "application/proto"
+    accept = "application/json" if use_json else "application/proto"
 
     with tempfile.NamedTemporaryFile(delete=False) as req:
         req.write(body)
@@ -352,9 +358,9 @@ def _curl_post(path: str, body: bytes) -> tuple[int, str, bytes]:
             "--cacert",
             CERT_PEM,
             "-H",
-            "Content-Type: application/proto",
+            f"Content-Type: {content_type}",
             "-H",
-            "Accept: application/proto",
+            f"Accept: {accept}",
             "-H",
             "Connect-Protocol-Version: 1",
             "-H",
@@ -461,7 +467,49 @@ def main() -> int:
             get_user_status_req,
         )
         ct = _header_value(hdr, "Content-Type")
-        print(f"GetUserStatus http={code} content_type={ct} resp_bytes={len(body)}")
+        print(
+            f"GetUserStatus (proto) http={code} content_type={ct} resp_bytes={len(body)}"
+        )
+
+        # Also probe JSON endpoint to inspect readable response
+        # Note: We send empty JSON object {} because we can't easily encode the protobuf request to JSON here
+        # without external deps. The server might accept empty body or {} for GetUserStatus if fields are optional.
+        # But GetUserStatus requires metadata.
+        # However, for debugging, let's try sending just {} and see if it returns partial status or error.
+        # Actually, since we can't encode Metadata to JSON easily without `protobuf` lib, we'll skip the request body
+        # and hope the server uses the auth token/session state or defaults.
+        # Update: Connect-RPC usually requires a valid JSON body matching the message structure.
+        # If we can't provide it, we might get an error.
+        # BUT: We can construct a minimal JSON payload manually since we know the structure!
+        # Metadata field is 1. JSON name is "metadata".
+        # Inside metadata: api_key is 3 -> "apiKey".
+        # Let's try constructing a minimal valid JSON request.
+
+        json_req = json.dumps(
+            {
+                "metadata": {
+                    "ideName": "antigravity",
+                    "apiKey": access_token,
+                    "ideVersion": "0",
+                    "extensionName": "google.antigravity",
+                    "extensionVersion": "0.0.0",
+                }
+            }
+        ).encode("utf-8")
+
+        code_json, hdr_json, body_json = _curl_post(
+            "/exa.language_server_pb.LanguageServerService/GetUserStatus",
+            json_req,
+            use_json=True,
+        )
+        print(f"GetUserStatus (json) http={code_json} resp_bytes={len(body_json)}")
+        if code_json == 200:
+            try:
+                parsed = json.loads(body_json)
+                print(json.dumps(parsed, indent=2))
+            except:
+                print("Failed to parse JSON response")
+                print(body_json.decode("utf-8", "replace")[:1000])
 
         if ct and "json" in ct.lower():
             # This should be a Connect error payload.
