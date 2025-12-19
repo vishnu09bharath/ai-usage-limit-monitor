@@ -3,7 +3,6 @@ import SwiftUI
 struct StatusMenuView: View {
     @ObservedObject var model: AppModel
 
-    @AppStorage(AppSettingsKeys.showCredits) private var showCredits = true
     @AppStorage(AppSettingsKeys.maxVisibleModels) private var maxVisibleModels = 5
     @AppStorage(AppSettingsKeys.hiddenModelIdsJSON) private var hiddenModelIdsJSON = Data()
 

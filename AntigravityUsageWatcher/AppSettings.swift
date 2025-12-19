@@ -2,7 +2,6 @@ import Foundation
 
 enum AppSettingsKeys {
     static let showStatusText = "showStatusText"
-    static let showCredits = "showCredits"
     static let maxVisibleModels = "maxVisibleModels"
     static let refreshCadenceMinutes = "refreshCadenceMinutes"
 
@@ -54,10 +53,6 @@ struct KnownModel: Codable, Identifiable, Hashable {
 enum AppSettings {
     static var showStatusText: Bool {
         getBool(key: AppSettingsKeys.showStatusText, defaultValue: true)
-    }
-
-    static var showCredits: Bool {
-        getBool(key: AppSettingsKeys.showCredits, defaultValue: true)
     }
 
     static var maxVisibleModels: Int {

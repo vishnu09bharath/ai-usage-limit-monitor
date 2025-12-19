@@ -32,12 +32,10 @@ struct SettingsRootView: View {
 
 private struct GeneralSettingsView: View {
     @AppStorage(AppSettingsKeys.showStatusText) private var showStatusText = true
-    @AppStorage(AppSettingsKeys.showCredits) private var showCredits = true
 
     var body: some View {
         Form {
             Toggle("Show usage in menu bar", isOn: $showStatusText)
-            Toggle("Show credits", isOn: $showCredits)
 
             Section {
                 Text("Antigravity quotas are fetched from the local Antigravity language server.")

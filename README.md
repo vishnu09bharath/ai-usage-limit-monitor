@@ -7,7 +7,6 @@ A macOS menu bar app that shows your Antigravity quota usage.
 AntigravityUsageWatcher runs in your macOS menu bar and shows:
 
 - Your account/plan (when available)
-- Monthly prompt credits
 - Per-model quota remaining + reset times
 
 It signs in with Google (same account you use with Antigravity) and fetches usage by spawning Antigravity’s bundled local language server.
