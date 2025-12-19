@@ -14,8 +14,6 @@ It signs in with Google (same account you use with Antigravity) and fetches usag
 
 ## Screenshot
 
-Place your screenshot at `./docs/screenshot.png` and it will show here:
-
 ![AntigravityUsageWatcher screenshot](./docs/screenshot.png)
 
 ## Requirements
