@@ -1,18 +1,80 @@
 import AppKit
+import Combine
 import CryptoKit
 import Darwin
 import Foundation
 import Network
+import os
 import Security
+
+enum AppLog {
+    static let subsystem = Bundle.main.bundleIdentifier ?? "com.github.shekohex.AntigravityUsageWatcher"
+
+    static let app = Logger(subsystem: subsystem, category: "app")
+    static let oauth = Logger(subsystem: subsystem, category: "oauth")
+    static let languageServer = Logger(subsystem: subsystem, category: "language_server")
+    static let network = Logger(subsystem: subsystem, category: "network")
+
+    static var isVerboseEnabled: Bool {
+#if DEBUG
+        // Default to verbose logs in Debug while we stabilize sign-in/LS startup.
+        return true
+#else
+        if UserDefaults.standard.bool(forKey: "debugLogsEnabled") {
+            return true
+        }
+        return ProcessInfo.processInfo.environment["ANTIGRAVITY_DEBUG_LOGS"] == "1"
+#endif
+    }
+
+    static func sanitizeExternalLogLine(_ line: String) -> String {
+        var sanitized = line
+
+        // Best-effort redaction in case a child process logs tokens.
+        // Google OAuth access tokens often start with "ya29." and refresh tokens often start with "1//".
+        sanitized = sanitized.replacingOccurrences(ofPattern: "ya29\\.[A-Za-z0-9._-]+", with: "<redacted>")
+        sanitized = sanitized.replacingOccurrences(ofPattern: "1//[A-Za-z0-9._-]+", with: "<redacted>")
+
+        let maxLength = 800
+        if sanitized.count > maxLength {
+            sanitized = String(sanitized.prefix(maxLength)) + "…"
+        }
+
+        return sanitized
+    }
+
+    static func summarizeError(_ error: Error) -> String {
+        let nsError = error as NSError
+        let message = nsError.localizedDescription
+        if message.isEmpty {
+            return "\(nsError.domain)(\(nsError.code))"
+        }
+        return "\(nsError.domain)(\(nsError.code)): \(message)"
+    }
+}
+
+private extension String {
+    func replacingOccurrences(ofPattern pattern: String, with replacement: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return self
+        }
+
+        let range = NSRange(startIndex..<endIndex, in: self)
+        return regex.stringByReplacingMatches(in: self, options: [], range: range, withTemplate: replacement)
+    }
+}
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private let model = AppModel()
+    private let dashboardWindow = DashboardWindowController()
 
     private let menu = NSMenu()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AppLog.app.info("App launched (verbose=\(AppLog.isVerboseEnabled, privacy: .public))")
+
         setupStatusBar()
 
         model.onUpdate = { [weak self] in
@@ -133,7 +195,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 menu.addItem(pinRoot)
             }
         } else {
-            let item = NSMenuItem(title: model.isRefreshing ? "Loading…" : "No data yet", action: nil, keyEquivalent: "")
+            let title: String
+            if model.isRefreshing {
+                title = "Loading…"
+            } else if let error = model.lastErrorMessage {
+                title = "Error: \(error)"
+            } else {
+                title = "No data yet"
+            }
+
+            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
             item.isEnabled = false
             menu.addItem(item)
         }
@@ -162,7 +233,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func openDashboard() {
-        // TODO: Implement SwiftUI dashboard window.
+        dashboardWindow.show(model: model)
     }
 
     @objc private func pinModel(_ sender: NSMenuItem) {
@@ -180,23 +251,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 // MARK: - App Model
 
 @MainActor
-final class AppModel {
+final class AppModel: ObservableObject {
+    let objectWillChange = ObservableObjectPublisher()
     var onUpdate: (() -> Void)?
 
+    private func notifyChanged() {
+        objectWillChange.send()
+        onUpdate?()
+    }
+
     private(set) var isRefreshing = false {
-        didSet { onUpdate?() }
+        didSet { notifyChanged() }
     }
 
     private(set) var lastErrorMessage: String? {
-        didSet { onUpdate?() }
+        didSet { notifyChanged() }
     }
 
     private(set) var snapshot: QuotaSnapshot? {
-        didSet { onUpdate?() }
+        didSet { notifyChanged() }
     }
 
     private var authState: AuthState? {
-        didSet { onUpdate?() }
+        didSet { notifyChanged() }
     }
 
     private var currentAccessToken: AccessToken? = nil
@@ -233,6 +310,8 @@ final class AppModel {
     }
 
     func signIn() async {
+        AppLog.app.info("Sign-in started")
+
         lastErrorMessage = nil
         isRefreshing = true
         defer { isRefreshing = false }
@@ -243,13 +322,17 @@ final class AppModel {
             authState = newState
             currentAccessToken = nil
 
+            AppLog.app.info("Sign-in completed; refreshing status")
             await refreshNow()
         } catch {
-            lastErrorMessage = "Sign-in failed"
+            AppLog.app.error("Sign-in failed: \(String(describing: error), privacy: .public)")
+            lastErrorMessage = Self.userFacingErrorMessage(prefix: "Sign-in failed", error: error)
         }
     }
 
     func signOut() async {
+        AppLog.app.info("Sign-out")
+
         lastErrorMessage = nil
         snapshot = nil
         currentAccessToken = nil
@@ -264,6 +347,8 @@ final class AppModel {
             return
         }
 
+        AppLog.app.debug("Refresh started")
+
         lastErrorMessage = nil
         isRefreshing = true
         defer { isRefreshing = false }
@@ -277,14 +362,46 @@ final class AppModel {
             // Best-effort token sync. If this fails, GetUserStatus may still succeed.
             try? await connection.client.saveOAuthTokenInfo(accessToken: accessToken, refreshToken: authState.refreshToken)
 
-            let statusData = try await connection.client.getUserStatus()
+            let statusData = try await connection.client.getUserStatus(accessToken: accessToken)
             let parsed = try QuotaParser.parseUserStatusJSON(statusData)
             snapshot = parsed.withPinnedModelId(pinnedModelId)
+            AppLog.app.debug("Refresh succeeded")
 
         } catch {
+            AppLog.app.error("Refresh failed: \(String(describing: error), privacy: .public)")
             snapshot = nil
-            lastErrorMessage = "Failed to fetch quota"
+            lastErrorMessage = Self.userFacingErrorMessage(prefix: "Failed to fetch quota", error: error)
         }
+    }
+
+    private static func userFacingErrorMessage(prefix: String, error: Error) -> String {
+        if let oauthError = error as? OAuthError {
+            switch oauthError {
+            case .callbackListenerFailed(let detail):
+                return "\(prefix): \(detail). Check app entitlements for incoming connections."
+            case .callbackTimedOut:
+                return "\(prefix): timed out waiting for browser redirect."
+            case .remoteError(let message):
+                return "\(prefix): \(message)"
+            default:
+                return "\(prefix): \(oauthError.localizedDescription)"
+            }
+        }
+
+        if let lsError = error as? LanguageServerError {
+            return "\(prefix): \(lsError.localizedDescription)"
+        }
+
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCannotConnectToHost {
+            return "\(prefix): could not connect to the local Antigravity language server. Ensure Antigravity.app is installed and relaunch this app."
+        }
+
+        let description = error.localizedDescription
+        if description.isEmpty {
+            return "\(prefix): \(String(describing: error))"
+        }
+        return "\(prefix): \(description)"
     }
 }
 
@@ -348,12 +465,15 @@ final class OAuthController {
     private let authEndpoint = URL(string: "https://accounts.google.com/o/oauth2/v2/auth")!
 
     func signIn() async throws -> AuthState {
+        AppLog.oauth.info("OAuth sign-in starting")
+
         let verifier = PKCE.verifier()
         let challenge = PKCE.challengeS256(for: verifier)
         let state = PKCE.state()
 
         let server = OAuthCallbackServer(expectedState: state)
         let redirectURL = try await server.start()
+        AppLog.oauth.info("OAuth callback listening on \(redirectURL.absoluteString, privacy: .public)")
 
         guard var components = URLComponents(url: authEndpoint, resolvingAgainstBaseURL: false) else {
             throw OAuthError.invalidAuthURL
@@ -378,10 +498,13 @@ final class OAuthController {
         _ = await MainActor.run {
             NSWorkspace.shared.open(url)
         }
+        AppLog.oauth.debug("Opened browser for consent")
 
         let callback = try await server.waitForCallback(timeoutSeconds: 180)
+        AppLog.oauth.info("OAuth callback received")
 
         let token = try await exchangeCode(code: callback.code, codeVerifier: verifier, redirectURL: redirectURL)
+        AppLog.oauth.info("Exchanged code for tokens (hasRefresh=\((token.refreshToken?.isEmpty == false), privacy: .public))")
 
         guard let refresh = token.refreshToken, !refresh.isEmpty else {
             throw OAuthError.missingRefreshToken
@@ -402,6 +525,7 @@ final class OAuthController {
             return cached
         }
 
+        AppLog.oauth.debug("Refreshing access token")
         let token = try await refresh(refreshToken: auth.refreshToken)
         guard let accessToken = token.accessToken, !accessToken.isEmpty else {
             throw OAuthError.missingAccessToken
@@ -488,11 +612,33 @@ final class OAuthController {
     }
 }
 
-enum OAuthError: Error {
+enum OAuthError: Error, LocalizedError {
     case invalidAuthURL
     case missingRefreshToken
     case missingAccessToken
     case remoteError(String)
+    case callbackListenerFailed(String)
+    case callbackTimedOut
+    case callbackRejected
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidAuthURL:
+            return "Invalid OAuth URL"
+        case .missingRefreshToken:
+            return "Missing refresh token"
+        case .missingAccessToken:
+            return "Missing access token"
+        case .remoteError(let message):
+            return message
+        case .callbackListenerFailed(let detail):
+            return "Failed to start local callback server: \(detail)"
+        case .callbackTimedOut:
+            return "Timed out waiting for browser redirect"
+        case .callbackRejected:
+            return "OAuth callback did not include required parameters"
+        }
+    }
 }
 
 struct OAuthTokenResponse: Codable {
@@ -562,6 +708,8 @@ final class OAuthCallbackServer {
     }
 
     func start() async throws -> URL {
+        AppLog.oauth.debug("Starting OAuth loopback server")
+
         let parameters = NWParameters.tcp
         parameters.allowLocalEndpointReuse = true
 
@@ -581,12 +729,12 @@ final class OAuthCallbackServer {
                 switch state {
                 case .ready:
                     guard let port = listener.port?.rawValue else {
-                        continuation.resume(throwing: OAuthError.invalidAuthURL)
+                        continuation.resume(throwing: OAuthError.callbackListenerFailed("Listener ready but no port"))
                         return
                     }
                     continuation.resume(returning: URL(string: "http://127.0.0.1:\(port)/oauth-callback")!)
-                case .failed:
-                    continuation.resume(throwing: OAuthError.invalidAuthURL)
+                case .failed(let error):
+                    continuation.resume(throwing: OAuthError.callbackListenerFailed("\(error)"))
                 default:
                     break
                 }
@@ -597,7 +745,9 @@ final class OAuthCallbackServer {
     }
 
     func waitForCallback(timeoutSeconds: TimeInterval) async throws -> OAuthCallback {
-        try await withThrowingTaskGroup(of: OAuthCallback.self) { group in
+        AppLog.oauth.info("Waiting for OAuth callback (timeout=\(timeoutSeconds, privacy: .public)s)")
+
+        return try await withThrowingTaskGroup(of: OAuthCallback.self) { group in
             group.addTask { [weak self] in
                 try await withCheckedThrowingContinuation { continuation in
                     self?.continuation = continuation
@@ -606,7 +756,7 @@ final class OAuthCallbackServer {
 
             group.addTask {
                 try await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
-                throw OAuthError.invalidAuthURL
+                throw OAuthError.callbackTimedOut
             }
 
             defer {
@@ -648,6 +798,12 @@ final class OAuthCallbackServer {
             let state = components?.queryItems?.first(where: { $0.name == "state" })?.value
 
             let ok = (code != nil && state == self.expectedState)
+            if ok {
+                AppLog.oauth.info("OAuth callback accepted")
+            } else {
+                AppLog.oauth.error("OAuth callback rejected")
+            }
+
             let html: String
 
             if ok {
@@ -672,7 +828,7 @@ final class OAuthCallbackServer {
             })
 
             guard let code, let state, state == self.expectedState else {
-                self.continuation?.resume(throwing: OAuthError.invalidAuthURL)
+                self.continuation?.resume(throwing: OAuthError.callbackRejected)
                 self.continuation = nil
                 return
             }
@@ -697,6 +853,20 @@ enum ProcessKiller {
     }
 }
 
+enum LanguageServerError: Error, LocalizedError {
+    case failedToStart(port: UInt16, lastError: Error?)
+
+    var errorDescription: String? {
+        switch self {
+        case .failedToStart(let port, let lastError):
+            if let lastError {
+                return "Language server failed to start on 127.0.0.1:\(port): \(lastError.localizedDescription)"
+            }
+            return "Language server failed to start on 127.0.0.1:\(port)"
+        }
+    }
+}
+
 actor LanguageServerSupervisor {
     private var process: Process?
     private var connection: LanguageServerConnection?
@@ -711,6 +881,8 @@ actor LanguageServerSupervisor {
 
         let port = try allocatePort()
         let csrf = UUID().uuidString
+
+        AppLog.languageServer.info("Starting language server on 127.0.0.1:\(port, privacy: .public)")
 
         let metadata = ProtobufBuilders.buildMetadata(apiKey: apiKey)
 
@@ -728,8 +900,54 @@ actor LanguageServerSupervisor {
 
         let stdinPipe = Pipe()
         proc.standardInput = stdinPipe
-        proc.standardOutput = FileHandle.nullDevice
-        proc.standardError = FileHandle.nullDevice
+
+        if AppLog.isVerboseEnabled {
+            let stdout = Pipe()
+            let stderr = Pipe()
+            proc.standardOutput = stdout
+            proc.standardError = stderr
+
+            stdout.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                guard !data.isEmpty else { return }
+
+                let line = AppLog.sanitizeExternalLogLine(String(decoding: data, as: UTF8.self))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !line.isEmpty else { return }
+
+                // Avoid double-printing: forward child process output only to stdout/stderr.
+                let prefixed = "ls(stdout): \(line)\n"
+                if let outData = prefixed.data(using: .utf8) {
+                    try? FileHandle.standardOutput.write(contentsOf: outData)
+                }
+            }
+
+            stderr.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                guard !data.isEmpty else { return }
+
+                let line = AppLog.sanitizeExternalLogLine(String(decoding: data, as: UTF8.self))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !line.isEmpty else { return }
+
+                // Filter extremely noisy TLS EOF spam while we debug readiness.
+                if line.contains("http: TLS handshake error") {
+                    return
+                }
+
+                let prefixed = "ls(stderr): \(line)\n"
+                if let errData = prefixed.data(using: .utf8) {
+                    try? FileHandle.standardError.write(contentsOf: errData)
+                }
+            }
+        } else {
+            proc.standardOutput = FileHandle.nullDevice
+            proc.standardError = FileHandle.nullDevice
+        }
+
+        proc.terminationHandler = { process in
+            AppLog.languageServer.error("Language server exited (pid=\(process.processIdentifier, privacy: .public) code=\(process.terminationStatus, privacy: .public))")
+        }
 
         try proc.run()
 
@@ -739,13 +957,29 @@ actor LanguageServerSupervisor {
         let client = try LanguageServerClient(port: port, csrfToken: csrf)
 
         // Wait briefly for readiness.
-        for _ in 0..<50 {
+        var lastError: Error?
+        var ready = false
+
+        for attempt in 1...50 {
             do {
                 _ = try await client.getStatus()
+                ready = true
                 break
             } catch {
+                lastError = error
+                if AppLog.isVerboseEnabled {
+                    if attempt == 1 || attempt % 10 == 0 {
+                        AppLog.languageServer.debug("GetStatus not ready (attempt=\(attempt, privacy: .public)): \(AppLog.summarizeError(error), privacy: .public)")
+                    }
+                }
                 try await Task.sleep(nanoseconds: 100_000_000)
             }
+        }
+
+        guard ready else {
+            AppLog.languageServer.error("Language server never became ready on 127.0.0.1:\(port, privacy: .public)")
+            proc.terminate()
+            throw LanguageServerError.failedToStart(port: port, lastError: lastError)
         }
 
         let conn = LanguageServerConnection(port: port, csrfToken: csrf, client: client)
@@ -822,25 +1056,28 @@ final class LanguageServerClient: NSObject {
         self.baseURL = URL(string: "https://127.0.0.1:\(port)")!
         self.csrfToken = csrfToken
 
-        let pinnedCA = try PinnedCA()
-        let delegate = PinnedCASessionDelegate(pinnedCA: pinnedCA)
+        let pinned = try PinnedCertificate()
+        let delegate = PinnedCASessionDelegate(pinned: pinned)
         self.session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
 
         super.init()
     }
 
     func getStatus() async throws -> Data {
+        // Connect JSON requires a JSON object, even for empty messages.
         try await call(method: "GetStatus", jsonBody: Data("{}".utf8))
     }
 
     func saveOAuthTokenInfo(accessToken: AccessToken, refreshToken: String) async throws {
-        let expirySeconds = Int(accessToken.expiryDate.timeIntervalSince1970)
+        // Connect JSON maps google.protobuf.Timestamp to RFC3339 string.
+        let expiryString = Self.rfc3339(accessToken.expiryDate)
+
         let payload: [String: Any] = [
             "tokenInfo": [
                 "accessToken": accessToken.token,
                 "tokenType": accessToken.tokenType,
                 "refreshToken": refreshToken,
-                "expiry": ["seconds": expirySeconds],
+                "expiry": expiryString,
             ],
         ]
 
@@ -848,12 +1085,26 @@ final class LanguageServerClient: NSObject {
         _ = try await call(method: "SaveOAuthTokenInfo", jsonBody: body)
     }
 
-    func getUserStatus() async throws -> Data {
+    private static func rfc3339(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.string(from: date)
+    }
+
+    func getUserStatus(accessToken: AccessToken) async throws -> Data {
+        // Connect JSON mapping of exa.codeium_common_pb.Metadata.
         let payload: [String: Any] = [
             "metadata": [
                 "ideName": "antigravity",
+                "apiKey": accessToken.token,
+                "locale": "en-US",
+                "os": "macOS",
+                "ideVersion": "0.0.0",
                 "extensionName": "google.antigravity",
-                "locale": "en",
+                "extensionPath": AntigravityConfig.extensionPath,
+                "deviceFingerprint": "usagewatcher",
+                "triggerId": "menubar",
             ],
         ]
 
@@ -869,43 +1120,66 @@ final class LanguageServerClient: NSObject {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("1", forHTTPHeaderField: "Connect-Protocol-Version")
-        request.setValue(csrfToken, forHTTPHeaderField: "X-Codeium-Csrf-Token")
+        request.setValue(csrfToken, forHTTPHeaderField: "x-codeium-csrf-token")
 
-        request.httpBody = jsonBody
-
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw URLError(.badServerResponse)
+        if jsonBody.isEmpty {
+            // Some LS endpoints (e.g. GetStatus) reject a zero-length body when using Connect JSON.
+            request.httpBody = Data("{}".utf8)
+        } else {
+            request.httpBody = jsonBody
         }
 
-        guard http.statusCode == 200 else {
-            throw URLError(.badServerResponse)
+        if AppLog.isVerboseEnabled, method != "GetStatus" {
+            AppLog.network.debug("LS request \(method, privacy: .public) (bytes=\(jsonBody.count, privacy: .public))")
         }
 
-        return data
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw URLError(.badServerResponse)
+            }
+
+            if AppLog.isVerboseEnabled, method != "GetStatus" {
+                AppLog.network.debug("LS response \(method, privacy: .public) (status=\(http.statusCode, privacy: .public), bytes=\(data.count, privacy: .public))")
+            }
+
+            guard http.statusCode == 200 else {
+                if AppLog.isVerboseEnabled, method != "GetStatus" {
+                    let prefix = String(decoding: data.prefix(600), as: UTF8.self)
+                    AppLog.network.error("LS error body prefix: \(prefix, privacy: .public)")
+                }
+                throw URLError(.badServerResponse)
+            }
+
+            return data
+        } catch {
+            if method != "GetStatus" {
+                AppLog.network.error("LS call \(method, privacy: .public) failed: \(AppLog.summarizeError(error), privacy: .public)")
+            }
+            throw error
+        }
     }
 }
 
 // MARK: - TLS pinning
 
-struct PinnedCA {
-    let certificate: SecCertificate
+struct PinnedCertificate {
+    let der: Data
 
     init() throws {
         let pem = try String(contentsOfFile: AntigravityConfig.languageServerCertPath, encoding: .utf8)
-        let der = try PEM.decodeFirstCertificate(pem)
-        guard let cert = SecCertificateCreateWithData(nil, der as CFData) else {
-            throw URLError(.cannotDecodeContentData)
-        }
-        self.certificate = cert
+        self.der = try PEM.decodeFirstCertificate(pem)
     }
 }
 
 final class PinnedCASessionDelegate: NSObject, URLSessionDelegate {
-    private let pinnedCA: PinnedCA
+    private let pinned: PinnedCertificate
 
-    init(pinnedCA: PinnedCA) {
-        self.pinnedCA = pinnedCA
+    private static var didLogTrustFailure = false
+    private static let trustFailureLock = NSLock()
+
+    init(pinned: PinnedCertificate) {
+        self.pinned = pinned
     }
 
     func urlSession(
@@ -920,17 +1194,31 @@ final class PinnedCASessionDelegate: NSObject, URLSessionDelegate {
             return
         }
 
-        SecTrustSetAnchorCertificates(trust, [pinnedCA.certificate] as CFArray)
-        SecTrustSetAnchorCertificatesOnly(trust, true)
-
-        var error: CFError?
-        let ok = SecTrustEvaluateWithError(trust, &error)
-
-        if ok {
-            completionHandler(.useCredential, URLCredential(trust: trust))
-        } else {
-            completionHandler(.cancelAuthenticationChallenge, nil)
+        // The Antigravity language server uses a localhost certificate and ships a corresponding PEM.
+        // SecTrust evaluation fails with "certificate is not permitted for this usage" for this cert on some systems,
+        // so we do strict certificate pinning by comparing the presented certificate(s) to the pinned DER.
+        let chain = (SecTrustCopyCertificateChain(trust) as? [SecCertificate]) ?? []
+        for cert in chain {
+            let presentedDER = SecCertificateCopyData(cert) as Data
+            if presentedDER == pinned.der {
+                completionHandler(.useCredential, URLCredential(trust: trust))
+                return
+            }
         }
+
+        if AppLog.isVerboseEnabled {
+            Self.trustFailureLock.lock()
+            let shouldLog = !Self.didLogTrustFailure
+            Self.didLogTrustFailure = true
+            Self.trustFailureLock.unlock()
+
+            if shouldLog {
+                let host = challenge.protectionSpace.host
+                AppLog.network.error("TLS pin mismatch for \(host, privacy: .public) (chainCount=\(chain.count, privacy: .public))")
+            }
+        }
+
+        completionHandler(.cancelAuthenticationChallenge, nil)
     }
 }
 
@@ -973,7 +1261,7 @@ enum ProtobufBuilders {
         out += Proto.string(field: 3, apiKey)
         out += Proto.string(field: 4, "en-US")
         out += Proto.string(field: 5, "macOS")
-        out += Proto.string(field: 7, "0")
+        out += Proto.string(field: 7, "0.0.0")
         out += Proto.string(field: 12, "google.antigravity")
         out += Proto.string(field: 17, AntigravityConfig.extensionPath)
         out += Proto.string(field: 24, "usagewatcher")
