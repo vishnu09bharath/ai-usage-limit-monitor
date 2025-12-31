@@ -1,20 +1,27 @@
-# AntigravityUsageWatcher
+<h1 align="center">
+  AI Usage Limit Monitor
+</h1>
 
-A macOS menu bar app that shows your Antigravity quota usage.  
-Initially forked from [this repo](https://github.com/shekohex/AntigravityUsageWatcher).
+A macOS menu bar app that shows your Antigravity & Codex quota usage, with more providers coming soon.  
+This project was initially forked from [this repo](https://github.com/shekohex/AntigravityUsageWatcher).
 
 ## Overview
 
-AntigravityUsageWatcher runs in your macOS menu bar and shows:
+ai-usage-limit-monitor runs in your macOS menu bar and shows:
 
 - Your account/plan (when available)
 - Per-model quota remaining + reset times
 
+For Antigravity:
 It signs in with Google (same account you use with Antigravity) and fetches usage by spawning Antigravity’s bundled local language server.
 
-## Screenshot
+For Codex:
+It takes advantage of a local Codex CLI instance to parse usage limits.
 
-![AntigravityUsageWatcher screenshot](./docs/screenshot.png)
+## Screenshot
+<p align="center">
+  <img src="docs/menubar.png" width="50%" height="50%">
+</p>
 
 ## Requirements
 
@@ -22,16 +29,17 @@ It signs in with Google (same account you use with Antigravity) and fetches usag
 - Xcode (for building)
 - Antigravity installed at `/Applications/Antigravity.app`
   - This app spawns Antigravity’s bundled language server from inside the Antigravity app bundle.
+- Codex CLI installed and authenticated.
 
 ## Install (personal use)
 
 ### Option A: Archive from Xcode (recommended)
 
-1. Open `AntigravityUsageWatcher.xcodeproj` in Xcode.
-2. Select scheme `AngravityUsageWatcher` and destination `Any Mac`.
+1. Open `AIUsageLimitMonitor.xcodeproj` in Xcode.
+2. Select scheme `AIUsageLimitMonitor` and destination `Any Mac`.
 3. `Product` → `Archive`.
 4. In Organizer, select the archive → `Distribute App` → `Copy App`.
-5. Move the exported `AntigravityUsageWatcher.app` into `/Applications`.
+5. Move the exported `AIUsageLimitMonitor.app` into `/Applications`.
 
 ### Option B: Build from terminal
 
@@ -39,8 +47,8 @@ Build a Release app:
 
 ```sh
 xcodebuild \
-  -project "AntigravityUsageWatcher.xcodeproj" \
-  -scheme "AngravityUsageWatcher" \
+  -project "AIUsageLimitMonitor.xcodeproj" \
+  -scheme "AIUsageLimitMonitor" \
   -configuration Release \
   -destination 'platform=macOS' \
   build
