@@ -20,6 +20,7 @@ jobs:
         id: version
         run: |
           python3 - <<'PY'
+          import os
           import subprocess
           output = subprocess.check_output(
               ["xcodebuild", "-showBuildSettings", "-scheme", "AIUsageLimitMonitor", "-configuration", "Release"],
@@ -35,9 +36,11 @@ jobs:
           if not version:
             raise SystemExit("MARKETING_VERSION not found")
           if build:
-            print(f"version={version}-{build}")
+            resolved = f"{version}-{build}"
           else:
-            print(f"version={version}")
+            resolved = version
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+            fh.write(f"version={resolved}\n")
           PY
 
       - name: Stage app
