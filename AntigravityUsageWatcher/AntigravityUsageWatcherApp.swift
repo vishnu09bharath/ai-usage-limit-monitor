@@ -76,6 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let menu = NSMenu()
     private var isMenuOpen = false
     private var defaultsCancellable: AnyCancellable?
+    private var actionCancellables = Set<AnyCancellable>()
 
     private lazy var statusContentHostingView: NSHostingView<StatusMenuView> = {
         let hosting = NSHostingView(rootView: StatusMenuView(model: model, codexProvider: codexProvider))
@@ -97,20 +98,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         keyEquivalent: "r"
     )
 
-    private lazy var codexSessionItem = makeMenuItem(
-        title: "Codex Session…",
-        systemImage: "terminal",
-        action: #selector(openCodexSession),
-        keyEquivalent: ""
-    )
-
-    private lazy var switchAccountItem = makeMenuItem(
-        title: "Switch Account…",
-        systemImage: "person.crop.circle",
-        action: #selector(switchAccount),
-        keyEquivalent: ""
-    )
-
     private lazy var pinRootItem: NSMenuItem = {
         let item = NSMenuItem(title: "Pin Model", action: nil, keyEquivalent: "")
         item.image = NSImage(systemSymbolName: "pin", accessibilityDescription: nil)
@@ -121,17 +108,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let pinMenu = NSMenu()
 
     private lazy var settingsItem = makeMenuItem(
-        title: "Settings…",
+        title: "Settings",
         systemImage: "gearshape",
         action: #selector(openSettings),
         keyEquivalent: ","
-    )
-
-    private lazy var aboutItem = makeMenuItem(
-        title: "About…",
-        systemImage: "info.circle",
-        action: #selector(openAbout),
-        keyEquivalent: ""
     )
 
     private lazy var signInItem = makeMenuItem(
@@ -139,13 +119,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         systemImage: "person.crop.circle.badge.plus",
         action: #selector(signIn),
         keyEquivalent: "s"
-    )
-
-    private lazy var signOutItem = makeMenuItem(
-        title: "Sign Out",
-        systemImage: "person.crop.circle.badge.xmark",
-        action: #selector(signOut),
-        keyEquivalent: ""
     )
 
     private lazy var quitItem = makeMenuItem(
@@ -175,11 +148,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             .sink { [weak self] _ in
                 self?.applyStatusBarPresentation()
                 self?.updateMenuItems()
+
+                guard let self else { return }
+                if CodexSettings.enabled {
+                    Task { await self.codexProvider.start() }
+                } else {
+                    Task { await self.codexProvider.stop() }
+                }
+
+                Task { await self.model.setMonitoringEnabled(AppSettings.antigravityEnabled) }
             }
+
+        NotificationCenter.default.publisher(for: .codexOpenSession)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.openCodexSession()
+            }
+            .store(in: &actionCancellables)
+
+        NotificationCenter.default.publisher(for: .antigravitySwitchAccount)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.switchAccount()
+            }
+            .store(in: &actionCancellables)
+
+        NotificationCenter.default.publisher(for: .antigravitySignOut)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.signOut()
+            }
+            .store(in: &actionCancellables)
+
+        NotificationCenter.default.publisher(for: .antigravitySignIn)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.signIn()
+            }
+            .store(in: &actionCancellables)
 
         Task {
             await model.bootstrap()
-            await codexProvider.start()
+            await model.setMonitoringEnabled(AppSettings.antigravityEnabled)
+            if CodexSettings.enabled {
+                await codexProvider.start()
+            }
         }
     }
 
@@ -217,8 +230,85 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
 
+        let pinned = model.pinnedModelId
+
+        if AppSettings.showStatusText {
+            if pinned == UserDefaultsKeys.codexPinnedModelId,
+               CodexSettings.enabled,
+               let codex = codexProvider.snapshot?.mostConstrainedLimit {
+                button.image = nil
+                let title = "Codex \(codex.remainingPercent)%"
+                button.attributedTitle = NSAttributedString(
+                    string: title,
+                    attributes: [
+                        .foregroundColor: NSColor.labelColor,
+                        .font: NSFont.systemFont(ofSize: NSFont.systemFontSize)
+                    ]
+                )
+                button.contentTintColor = nil
+                button.toolTip = codexProvider.snapshot?.tooltipText ?? "Codex usage"
+                return
+            }
+
+            var provider = AppSettings.statusBarProvider
+            if provider == .antigravity, !AppSettings.antigravityEnabled, CodexSettings.enabled {
+                provider = .codex
+            } else if provider == .codex, !CodexSettings.enabled, AppSettings.antigravityEnabled {
+                provider = .antigravity
+            } else if provider == .both {
+                if !AppSettings.antigravityEnabled, CodexSettings.enabled {
+                    provider = .codex
+                } else if !CodexSettings.enabled, AppSettings.antigravityEnabled {
+                    provider = .antigravity
+                }
+            }
+
+            switch provider {
+            case .codex:
+                if CodexSettings.enabled, let codex = codexProvider.snapshot?.mostConstrainedLimit {
+                    button.image = nil
+                    let title = "Codex \(codex.remainingPercent)%"
+                    button.attributedTitle = NSAttributedString(
+                        string: title,
+                        attributes: [
+                            .foregroundColor: NSColor.labelColor,
+                            .font: NSFont.systemFont(ofSize: NSFont.systemFontSize)
+                        ]
+                    )
+                    button.contentTintColor = nil
+                    button.toolTip = codexProvider.snapshot?.tooltipText ?? "Codex usage"
+                    return
+                }
+            case .both:
+                let antigravityPercent = AppSettings.antigravityEnabled ? model.snapshot?.primaryModel?.remainingPercent : nil
+                let codexPercent = CodexSettings.enabled ? codexProvider.snapshot?.mostConstrainedLimit?.remainingPercent : nil
+                if antigravityPercent != nil || codexPercent != nil {
+                    button.image = nil
+                    let left = antigravityPercent.map { "AG \($0)%" }
+                    let right = codexPercent.map { "Codex \($0)%" }
+                    let title = [left, right].compactMap { $0 }.joined(separator: " · ")
+                    button.attributedTitle = NSAttributedString(
+                        string: title,
+                        attributes: [
+                            .foregroundColor: NSColor.labelColor,
+                            .font: NSFont.systemFont(ofSize: NSFont.systemFontSize)
+                        ]
+                    )
+                    button.contentTintColor = nil
+                    let agTip = model.snapshot?.tooltipText
+                    let codexTip = codexProvider.snapshot?.tooltipText
+                    button.toolTip = [agTip, codexTip].compactMap { $0 }.joined(separator: "\n\n")
+                    return
+                }
+            case .antigravity:
+                break
+            }
+        }
+
         if let snapshot = model.snapshot {
-            let pinned = model.pinnedModelId
+            let pinnedModel = pinned.flatMap { pinnedId in
+                snapshot.models.first { $0.modelId == pinnedId }
+            }
             let hidden = AppSettings.hiddenModelIds()
             let visibleModels = snapshot.modelsSortedForDisplay.filter { quota in
                 if let pinned, quota.modelId == pinned {
@@ -227,7 +317,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 return !hidden.contains(quota.modelId)
             }
 
-            let primary = visibleModels.first
+            let primary = pinnedModel ?? visibleModels.first
 
             if AppSettings.showStatusText, let primary {
                 button.image = nil
@@ -276,10 +366,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             } else {
                 button.toolTip = "Signed in"
             }
-        } else {
+        } else if AppSettings.antigravityEnabled {
             button.image = NSImage(systemSymbolName: "person.crop.circle.badge.exclamationmark", accessibilityDescription: "Sign in")
             button.title = ""
             button.toolTip = "Sign in to show Antigravity usage"
+        } else {
+            button.image = statusBarUsageImage()
+            button.title = ""
+            button.toolTip = CodexSettings.enabled ? "Codex monitoring active" : "Monitoring disabled"
         }
     }
 
@@ -301,37 +395,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(statusContentItem)
         menu.addItem(NSMenuItem.separator())
         menu.addItem(refreshItem)
-        menu.addItem(codexSessionItem)
-        menu.addItem(switchAccountItem)
         menu.addItem(pinRootItem)
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(settingsItem)
-        menu.addItem(aboutItem)
-        menu.addItem(NSMenuItem.separator())
         menu.addItem(signInItem)
-        menu.addItem(signOutItem)
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(settingsItem)
         menu.addItem(quitItem)
     }
 
     private func updateMenuItems() {
-        refreshItem.isHidden = !model.isSignedIn
-        refreshItem.isEnabled = model.isSignedIn && !model.isRefreshing
-
-        codexSessionItem.isHidden = !CodexSettings.enabled
-        codexSessionItem.isEnabled = CodexSettings.enabled
-
-        switchAccountItem.isHidden = !model.isSignedIn
-        switchAccountItem.isEnabled = model.isSignedIn && !model.isRefreshing
+        refreshItem.isHidden = !model.isSignedIn || !AppSettings.antigravityEnabled
+        refreshItem.isEnabled = model.isSignedIn && !model.isRefreshing && AppSettings.antigravityEnabled
 
         let hasModels = (model.snapshot?.models.isEmpty == false)
-        pinRootItem.isHidden = !(model.isSignedIn && hasModels)
-        pinRootItem.isEnabled = !pinRootItem.isHidden
+        let hasPinOptions = hasModels || CodexSettings.enabled
+        pinRootItem.isHidden = !hasPinOptions
+        pinRootItem.isEnabled = hasPinOptions
 
         signInItem.isHidden = model.isSignedIn
         signInItem.isEnabled = !model.isSignedIn && !model.isRefreshing
-
-        signOutItem.isHidden = !model.isSignedIn
-        signOutItem.isEnabled = model.isSignedIn
 
         if isMenuOpen {
             menu.update()
@@ -341,10 +423,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func rebuildPinMenu() {
         pinMenu.removeAllItems()
 
-        guard let snapshot = model.snapshot, !snapshot.models.isEmpty else {
-            return
-        }
-
         if model.pinnedModelId != nil {
             pinMenu.addItem(makeMenuItem(
                 title: "Unpin",
@@ -353,6 +431,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 keyEquivalent: ""
             ))
             pinMenu.addItem(NSMenuItem.separator())
+        }
+
+        if CodexSettings.enabled {
+            let item = NSMenuItem(title: "Codex Limits", action: #selector(pinModel(_:)), keyEquivalent: "")
+            item.representedObject = UserDefaultsKeys.codexPinnedModelId
+            item.state = (model.pinnedModelId == UserDefaultsKeys.codexPinnedModelId) ? .on : .off
+            pinMenu.addItem(item)
+            pinMenu.addItem(NSMenuItem.separator())
+        }
+
+        guard let snapshot = model.snapshot, !snapshot.models.isEmpty else {
+            return
         }
 
         let hidden = AppSettings.hiddenModelIds()
@@ -473,7 +563,10 @@ final class AppModel: ObservableObject {
     }
 
     private var authState: AuthState? {
-        didSet { notifyChanged() }
+        didSet {
+            UserDefaults.standard.set(authState != nil, forKey: AppSettingsKeys.antigravitySignedIn)
+            notifyChanged()
+        }
     }
 
     private var currentAccessToken: AccessToken? = nil
@@ -552,7 +645,26 @@ final class AppModel: ObservableObject {
         await languageServer.stop()
     }
 
+    func setMonitoringEnabled(_ enabled: Bool) async {
+        if enabled {
+            restartAutoRefreshIfNeeded()
+            if authState != nil {
+                await refreshNow()
+            }
+        } else {
+            autoRefreshTask?.cancel()
+            autoRefreshTask = nil
+            isRefreshing = false
+            snapshot = nil
+            lastErrorMessage = nil
+            await languageServer.stop()
+        }
+    }
+
     func refreshNow() async {
+        guard AppSettings.antigravityEnabled else {
+            return
+        }
         guard let authState else {
             return
         }
@@ -629,6 +741,10 @@ final class AppModel: ObservableObject {
         autoRefreshTask?.cancel()
         autoRefreshTask = nil
 
+        guard AppSettings.antigravityEnabled else {
+            return
+        }
+
         guard isSignedIn else {
             return
         }
@@ -657,6 +773,7 @@ final class AppModel: ObservableObject {
 
 enum UserDefaultsKeys {
     static let pinnedModelId = "pinnedModelId"
+    static let codexPinnedModelId = "__codex__"
 }
 
 struct AuthState: Codable {

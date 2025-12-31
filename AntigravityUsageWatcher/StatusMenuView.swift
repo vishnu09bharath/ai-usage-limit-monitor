@@ -6,6 +6,7 @@ struct StatusMenuView: View {
 
     @AppStorage(AppSettingsKeys.maxVisibleModels) private var maxVisibleModels = 5
     @AppStorage(AppSettingsKeys.hiddenModelIdsJSON) private var hiddenModelIdsJSON = Data()
+    @AppStorage(AppSettingsKeys.antigravityEnabled) private var antigravityEnabled = true
     @AppStorage(CodexSettingsKeys.enabled) private var codexEnabled = true
 
     private var snapshot: QuotaSnapshot? {
@@ -34,7 +35,11 @@ struct StatusMenuView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            if model.isSignedIn {
+            if !antigravityEnabled {
+                Text("Antigravity monitoring disabled in Settings → General.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else if model.isSignedIn {
                 if let snapshot {
                     modelsSection(snapshot)
                 } else {
@@ -120,40 +125,18 @@ struct StatusMenuView: View {
     private var codexSection: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline) {
-                Text("OpenAI / Codex")
+                Text("Codex")
                     .font(.title3)
                     .bold()
 
                 Spacer(minLength: 12)
 
-                if let planType = codexProvider.snapshot?.planType,
-                   let label = CodexFormatting.planLabel(planType) {
-                    Text(label)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            HStack(alignment: .firstTextBaseline) {
-                if let email = codexProvider.snapshot?.email, !email.isEmpty {
-                    Text(email)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                } else {
-                    Text(codexUpdatedLabel)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer(minLength: 12)
-
-                if let accountId = CodexFormatting.shortAccountId(codexProvider.snapshot?.accountId) {
-                    Text("Acct \(accountId)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                let email = codexProvider.snapshot?.email ?? (codexProvider.isRunning ? "Signed in" : "Signed out")
+                Text(email)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
 
             HStack(alignment: .firstTextBaseline) {
@@ -162,6 +145,13 @@ struct StatusMenuView: View {
                     .foregroundStyle(.secondary)
 
                 Spacer(minLength: 12)
+
+                if let planType = codexProvider.snapshot?.planType,
+                   let label = CodexFormatting.planLabel(planType) {
+                    Text(label)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
 
                 if !codexProvider.isRunning {
                     Text("Not running")

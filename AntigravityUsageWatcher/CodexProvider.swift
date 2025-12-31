@@ -21,6 +21,7 @@ final class CodexProvider: ObservableObject {
     private var outputBuffer = Data()
     private var readSource: DispatchSourceRead?
     private var autoRefreshTask: Task<Void, Never>?
+    private var statusRequestCount = 0
 
     private let log = Logger(subsystem: "com.github.shekohex.AntigravityUsageWatcher", category: "codex")
 
@@ -55,10 +56,10 @@ final class CodexProvider: ObservableObject {
             lastErrorMessage = nil
             notifyChanged()
 
-            // Wait for initial prompt
-            try await Task.sleep(nanoseconds: 2_000_000_000)
+            // Short wait for prompt rendering
+            try await Task.sleep(for: .seconds(0.5))
 
-            // Initial status fetch
+            // Immediate status fetch
             await refreshNow()
 
             // Start auto-refresh loop
@@ -72,6 +73,7 @@ final class CodexProvider: ObservableObject {
 
     /// Stop the Codex CLI session.
     func stop() async {
+        statusRequestCount = 0
         stopSync()
     }
 
@@ -121,7 +123,7 @@ final class CodexProvider: ObservableObject {
         }
 
         // Wait for response
-        try? await Task.sleep(nanoseconds: 1_500_000_000)
+        try? await Task.sleep(for: .seconds(5))
 
         // Parse the output
         let output = String(decoding: outputBuffer, as: UTF8.self)
@@ -132,6 +134,14 @@ final class CodexProvider: ObservableObject {
             let (email, planType, accountId) = loadAuthInfo()
             snapshot = CodexOutputParser.parseStatusOutput(output, email: email, planType: planType, accountId: accountId)
             log.info("Parsed snapshot: primary=\(self.snapshot?.primaryLimit?.usedPercent ?? -1, privacy: .public)%, secondary=\(self.snapshot?.secondaryLimit?.usedPercent ?? -1, privacy: .public)%")
+        }
+
+        statusRequestCount += 1
+        if statusRequestCount >= 5 {
+            statusRequestCount = 0
+            Task { [weak self] in
+                await self?.restart()
+            }
         }
 
         notifyChanged()
@@ -265,7 +275,7 @@ final class CodexProvider: ObservableObject {
 
         autoRefreshTask = Task { [weak self] in
             while let self, !Task.isCancelled, self.isRunning {
-                try? await Task.sleep(nanoseconds: UInt64(intervalSeconds * 1_000_000_000))
+                try? await Task.sleep(for: .seconds(0.1))
                 if Task.isCancelled { break }
                 await self.refreshNow()
             }

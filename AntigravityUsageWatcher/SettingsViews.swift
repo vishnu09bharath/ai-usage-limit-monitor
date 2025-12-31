@@ -3,6 +3,8 @@ import SwiftUI
 
 struct SettingsRootView: View {
     @AppStorage(AppSettingsKeys.settingsSelectedTab) private var selectedTabRaw = SettingsTab.general.rawValue
+    @AppStorage(AppSettingsKeys.antigravityEnabled) private var antigravityEnabled = true
+    @AppStorage(CodexSettingsKeys.enabled) private var codexEnabled = true
 
     private var selectionBinding: Binding<SettingsTab> {
         Binding(
@@ -17,62 +19,122 @@ struct SettingsRootView: View {
                 .tabItem { Label("General", systemImage: "gearshape") }
                 .tag(SettingsTab.general)
 
-            CodexSettingsView()
-                .tabItem { Label("OpenAI", systemImage: "brain") }
-                .tag(SettingsTab.codex)
+            if codexEnabled {
+                CodexSettingsView()
+                    .tabItem { Label("Codex", systemImage: "brain") }
+                    .tag(SettingsTab.codex)
+            }
 
-            AdvancedSettingsView()
-                .tabItem { Label("Advanced", systemImage: "slider.horizontal.3") }
-                .tag(SettingsTab.advanced)
+            if antigravityEnabled {
+                AdvancedSettingsView()
+                    .tabItem { Label("Antigravity", systemImage: "sparkles") }
+                    .tag(SettingsTab.advanced)
+            }
 
             AboutSettingsView()
                 .tabItem { Label("About", systemImage: "info.circle") }
                 .tag(SettingsTab.about)
         }
         .padding(16)
-        .frame(width: 540, height: 480)
+        .frame(width: 560, height: 520)
+        .onChange(of: codexEnabled) { _, newValue in
+            if !newValue, selectionBinding.wrappedValue == .codex {
+                selectionBinding.wrappedValue = .general
+            }
+        }
+        .onChange(of: antigravityEnabled) { _, newValue in
+            if !newValue, selectionBinding.wrappedValue == .advanced {
+                selectionBinding.wrappedValue = .general
+            }
+        }
     }
 }
 
 private struct GeneralSettingsView: View {
     @AppStorage(AppSettingsKeys.showStatusText) private var showStatusText = true
     @AppStorage(AppSettingsKeys.statusBarProvider) private var statusBarProviderRaw = StatusBarProvider.antigravity.rawValue
+    @AppStorage(AppSettingsKeys.antigravityEnabled) private var antigravityEnabled = true
+    @AppStorage(CodexSettingsKeys.enabled) private var codexEnabled = true
 
     private var statusBarProviderBinding: Binding<StatusBarProvider> {
         Binding(
-            get: { StatusBarProvider(rawValue: statusBarProviderRaw) ?? .antigravity },
+            get: {
+                let value = StatusBarProvider(rawValue: statusBarProviderRaw) ?? .antigravity
+                if availableProviders.contains(value) {
+                    return value
+                }
+                return availableProviders.first ?? .antigravity
+            },
             set: { statusBarProviderRaw = $0.rawValue }
         )
     }
 
+    private var availableProviders: [StatusBarProvider] {
+        var providers: [StatusBarProvider] = []
+
+        if antigravityEnabled {
+            providers.append(.antigravity)
+        }
+
+        if codexEnabled {
+            providers.append(.codex)
+        }
+
+        if antigravityEnabled && codexEnabled {
+            providers.append(.both)
+        }
+
+        return providers.isEmpty ? [.antigravity] : providers
+    }
+
     var body: some View {
-        Form {
-            Toggle("Show usage in menu bar", isOn: $showStatusText)
+        ScrollView {
+            Form {
+                Section("Monitoring") {
+                    Toggle("Enable Antigravity monitoring", isOn: $antigravityEnabled)
+                        .onChange(of: antigravityEnabled) { _, _ in
+                            normalizeStatusBarProvider()
+                        }
 
-            if showStatusText {
-                Picker("Status bar provider", selection: statusBarProviderBinding) {
-                    ForEach(StatusBarProvider.allCases) { provider in
-                        Text(provider.label).tag(provider)
-                    }
+                    Toggle("Enable Codex monitoring", isOn: $codexEnabled)
+                        .onChange(of: codexEnabled) { _, _ in
+                            normalizeStatusBarProvider()
+                        }
                 }
-                .pickerStyle(.segmented)
-                
-                Text("Choose which provider's usage to show in the menu bar.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
 
-            Section {
-                Text("Antigravity quotas are fetched from the local Antigravity language server.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Toggle("Show usage in menu bar", isOn: $showStatusText)
+
+                if showStatusText {
+                    Picker("Status bar provider", selection: statusBarProviderBinding) {
+                        ForEach(availableProviders) { provider in
+                            Text(provider.label).tag(provider)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    Text("Choose which provider's usage to show in the menu bar.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section {
+                    Text("Antigravity quotas are fetched from the local Antigravity language server.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
+            .padding(.bottom, 8)
+        }
+    }
+
+    private func normalizeStatusBarProvider() {
+        if let first = availableProviders.first {
+            statusBarProviderRaw = first.rawValue
         }
     }
 }
 
 private struct CodexSettingsView: View {
-    @AppStorage(CodexSettingsKeys.enabled) private var codexEnabled = true
     @AppStorage(CodexSettingsKeys.binaryPath) private var binaryPath = ""
     @AppStorage(CodexSettingsKeys.refreshCadenceMinutes) private var refreshCadenceMinutes = CodexRefreshCadence.oneMinute.rawValue
 
@@ -86,18 +148,19 @@ private struct CodexSettingsView: View {
     }
 
     var body: some View {
-        Form {
-            Section("OpenAI / Codex CLI") {
-                Toggle("Enable Codex usage monitoring", isOn: $codexEnabled)
+        ScrollView {
+            Form {
+                Section("Codex CLI") {
+                    Text("Monitor your ChatGPT plan usage limits via the Codex CLI.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
 
-                Text("Monitor your ChatGPT plan usage limits via the Codex CLI.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+                Section {
+                    Text("Refresh cadence")
+                        .font(.headline)
 
-            if codexEnabled {
-                Section("Refresh Cadence") {
-                    Picker("Refresh cadence", selection: cadenceBinding) {
+                    Picker("Cadence", selection: cadenceBinding) {
                         ForEach(CodexRefreshCadence.allCases) { cadence in
                             Text(cadence.label).tag(cadence)
                         }
@@ -135,15 +198,22 @@ private struct CodexSettingsView: View {
                     }
                 }
 
+                Section("Session") {
+                    Button("Open Codex Session") {
+                        NotificationCenter.default.post(name: .codexOpenSession, object: nil)
+                    }
+                }
+
                 Section {
                     Text("Requires Codex CLI to be installed and logged in.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    
+
                     Link("Install Codex CLI", destination: URL(string: "https://github.com/openai/codex")!)
                         .font(.caption)
                 }
             }
+            .padding(.bottom, 8)
         }
         .onAppear {
             detectCodexBinary()
@@ -183,6 +253,7 @@ private struct CodexSettingsView: View {
 private struct AdvancedSettingsView: View {
     @AppStorage(AppSettingsKeys.refreshCadenceMinutes) private var refreshCadenceMinutes = RefreshCadence.fiveMinutes.rawValue
     @AppStorage(AppSettingsKeys.maxVisibleModels) private var maxVisibleModels = 5
+    @AppStorage(AppSettingsKeys.antigravitySignedIn) private var antigravitySignedIn = false
 
     @State private var knownModels: [KnownModel] = []
     @State private var hiddenModelIds: Set<String> = []
@@ -200,74 +271,96 @@ private struct AdvancedSettingsView: View {
     }
 
     var body: some View {
-        Form {
-            Section("Refresh cadence") {
-                Picker("Refresh cadence", selection: cadenceBinding) {
-                    ForEach(RefreshCadence.allCases) { cadence in
-                        Text(cadence.label).tag(cadence)
-                    }
-                }
-                .pickerStyle(.segmented)
+        ScrollView {
+            Form {
+                Section {
+                    Text("Refresh cadence")
+                        .font(.headline)
 
-                Text("When set to Manual, refresh only happens on demand.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("Menu") {
-                Stepper(value: $maxVisibleModels, in: 1...12) {
-                    Text("Max visible models: \(maxVisibleModels)")
-                }
-            }
-
-            Section("Models") {
-                if knownModels.isEmpty {
-                    Text("No models detected yet.")
-                        .foregroundStyle(.secondary)
-                    Text("Open the menu bar app and refresh once to populate this list.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    TextField("Search models", text: $modelSearchText)
-
-                    Toggle("Show hidden models", isOn: $showHiddenOnly)
-
-                    HStack {
-                        Button("Show All") {
-                            hiddenModelIds.removeAll()
-                            AppSettings.setHiddenModelIds(hiddenModelIds)
-                        }
-
-                        Button("Hide All") {
-                            hiddenModelIds = Set(knownModels.map { $0.modelId })
-                            AppSettings.setHiddenModelIds(hiddenModelIds)
-                        }
-
-                        Spacer()
-                    }
-
-                    ForEach(filteredKnownModels) { known in
-                        Toggle(isOn: isModelVisibleBinding(known)) {
-                            Text(known.label)
+                    Picker("Cadence", selection: cadenceBinding) {
+                        ForEach(RefreshCadence.allCases) { cadence in
+                            Text(cadence.label).tag(cadence)
                         }
                     }
+                    .pickerStyle(.segmented)
 
-                    Text("Pinned models are always shown.")
+                    Text("When set to Manual, refresh only happens on demand.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-            }
 
-            Section {
-                Toggle("Show Debug Settings", isOn: $showDebugSettings)
+                Section("Account") {
+                    if antigravitySignedIn {
+                        Button("Switch Account") {
+                            NotificationCenter.default.post(name: .antigravitySwitchAccount, object: nil)
+                        }
 
-                if showDebugSettings {
-                    Toggle("Enable debug logs (Release builds)", isOn: $debugLogsEnabled)
-                    Text("Debug logs may include network error details but should never include tokens.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        Button("Sign Out") {
+                            NotificationCenter.default.post(name: .antigravitySignOut, object: nil)
+                        }
+                    } else {
+                        Button("Sign in with Google") {
+                            NotificationCenter.default.post(name: .antigravitySignIn, object: nil)
+                        }
+                    }
+                }
+
+                Section("Menu") {
+                    Stepper(value: $maxVisibleModels, in: 1...12) {
+                        Text("Max visible models: \(maxVisibleModels)")
+                    }
+                }
+
+                Section("Models") {
+                    if knownModels.isEmpty {
+                        Text("No models detected yet.")
+                            .foregroundStyle(.secondary)
+                        Text("Open the menu bar app and refresh once to populate this list.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        TextField("Search models", text: $modelSearchText)
+
+                        Toggle("Show hidden models", isOn: $showHiddenOnly)
+
+                        HStack {
+                            Button("Show All") {
+                                hiddenModelIds.removeAll()
+                                AppSettings.setHiddenModelIds(hiddenModelIds)
+                            }
+
+                            Button("Hide All") {
+                                hiddenModelIds = Set(knownModels.map { $0.modelId })
+                                AppSettings.setHiddenModelIds(hiddenModelIds)
+                            }
+
+                            Spacer()
+                        }
+
+                        ForEach(filteredKnownModels) { known in
+                            Toggle(isOn: isModelVisibleBinding(known)) {
+                                Text(known.label)
+                            }
+                        }
+
+                        Text("Pinned models are always shown.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section {
+                    Toggle("Show Debug Settings", isOn: $showDebugSettings)
+
+                    if showDebugSettings {
+                        Toggle("Enable debug logs (Release builds)", isOn: $debugLogsEnabled)
+                        Text("Debug logs may include network error details but should never include tokens.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
+            .padding(.bottom, 8)
         }
         .onAppear { reloadModelsFromDefaults() }
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
@@ -320,39 +413,42 @@ private struct AboutSettingsView: View {
     }
 
     var body: some View {
-        VStack(spacing: 14) {
-            Image(nsImage: NSApp.applicationIconImage)
-                .resizable()
-                .frame(width: 72, height: 72)
+        ScrollView {
+            VStack(spacing: 14) {
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable()
+                    .frame(width: 72, height: 72)
 
-            Text("AntigravityUsageWatcher")
-                .font(.title3)
-                .bold()
+                Text("AntigravityUsageWatcher")
+                    .font(.title3)
+                    .bold()
 
-            Text(versionString)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                Text(versionString)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
 
-            VStack(spacing: 8) {
-                Link(destination: URL(string: "https://github.com/shekohex/AntigravityUsageWatcher")!) {
-                    Label("GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
+                VStack(spacing: 8) {
+                    Link(destination: URL(string: "https://github.com/shekohex/AntigravityUsageWatcher")!) {
+                        Label("GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
+                    }
                 }
+                .padding(.top, 8)
+
+                Divider()
+
+                Toggle("Check for updates automatically", isOn: $checkUpdatesAutomatically)
+
+                Button("Check for Updates…") {}
+                    .disabled(true)
+
+                Spacer()
+
+                Text("© \(Calendar.current.component(.year, from: Date()))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            .padding(.top, 8)
-
-            Divider()
-
-            Toggle("Check for updates automatically", isOn: $checkUpdatesAutomatically)
-
-            Button("Check for Updates…") {}
-                .disabled(true)
-
-            Spacer()
-
-            Text("© \(Calendar.current.component(.year, from: Date()))")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.bottom, 8)
         }
-        .frame(maxWidth: .infinity)
     }
 }

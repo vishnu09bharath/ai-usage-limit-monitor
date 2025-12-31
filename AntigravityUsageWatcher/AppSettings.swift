@@ -11,9 +11,15 @@ enum AppSettingsKeys {
     static let showDebugSettings = "showDebugSettings"
     static let settingsSelectedTab = "settingsSelectedTab"
     static let debugLogsEnabled = "debugLogsEnabled"
-    
+
     // Status bar display preference
     static let statusBarProvider = "statusBarProvider"
+
+    // Antigravity sign-in state for settings UI
+    static let antigravitySignedIn = "antigravitySignedIn"
+
+    // Antigravity monitoring enabled
+    static let antigravityEnabled = "antigravityEnabled"
 }
 
 enum SettingsTab: String {
@@ -160,6 +166,14 @@ enum AppSettings {
     static func setStatusBarProvider(_ provider: StatusBarProvider) {
         UserDefaults.standard.set(provider.rawValue, forKey: AppSettingsKeys.statusBarProvider)
     }
+
+    static var antigravityEnabled: Bool {
+        getBool(key: AppSettingsKeys.antigravityEnabled, defaultValue: true)
+    }
+
+    static func setAntigravityEnabled(_ value: Bool) {
+        UserDefaults.standard.set(value, forKey: AppSettingsKeys.antigravityEnabled)
+    }
 }
 
 /// Which provider to show in the menu bar status text.
@@ -167,14 +181,21 @@ enum StatusBarProvider: String, CaseIterable, Identifiable {
     case antigravity = "antigravity"
     case codex = "codex"
     case both = "both"
-    
+
     var id: String { rawValue }
-    
+
     var label: String {
         switch self {
         case .antigravity: "Antigravity"
-        case .codex: "OpenAI / Codex"
+        case .codex: "Codex"
         case .both: "Both"
         }
     }
+}
+
+extension Notification.Name {
+    static let codexOpenSession = Notification.Name("CodexOpenSession")
+    static let antigravitySwitchAccount = Notification.Name("AntigravitySwitchAccount")
+    static let antigravitySignOut = Notification.Name("AntigravitySignOut")
+    static let antigravitySignIn = Notification.Name("AntigravitySignIn")
 }

@@ -67,13 +67,14 @@ private struct CodexSessionView: View {
                     .textSelection(.enabled)
             }
 
-            TextEditor(text: Binding(
-                get: { provider.sessionLog },
-                set: { _ in }
-            ))
-            .font(.system(.body, design: .monospaced))
+            ScrollView {
+                Text(provider.sessionLog.isEmpty ? "No session output yet." : provider.sessionLog)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .textSelection(.enabled)
+                    .padding(8)
+            }
             .frame(minHeight: 300)
-            .disabled(true)
             .overlay(
                 RoundedRectangle(cornerRadius: 6)
                     .stroke(Color.secondary.opacity(0.2), lineWidth: 1)

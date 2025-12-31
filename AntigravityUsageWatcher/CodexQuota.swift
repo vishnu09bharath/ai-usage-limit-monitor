@@ -99,10 +99,6 @@ struct CodexSnapshot: Equatable {
             lines.append("\(secondary.windowLabel): \(secondary.remainingPercent)% left\(reset)")
         }
 
-        if let accountId = CodexFormatting.shortAccountId(accountId) {
-            lines.append("Account: \(accountId)")
-        }
-
         if lines.isEmpty {
             return "Codex: No usage data"
         }
