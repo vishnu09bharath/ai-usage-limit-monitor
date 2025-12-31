@@ -2,9 +2,11 @@ import SwiftUI
 
 struct StatusMenuView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject var codexProvider: CodexProvider
 
     @AppStorage(AppSettingsKeys.maxVisibleModels) private var maxVisibleModels = 5
     @AppStorage(AppSettingsKeys.hiddenModelIdsJSON) private var hiddenModelIdsJSON = Data()
+    @AppStorage(CodexSettingsKeys.enabled) private var codexEnabled = true
 
     private var snapshot: QuotaSnapshot? {
         model.snapshot
@@ -22,7 +24,8 @@ struct StatusMenuView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            header
+            // Antigravity Section
+            antigravityHeader
 
             if let message = model.lastErrorMessage {
                 Text(message)
@@ -44,13 +47,23 @@ struct StatusMenuView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
+
+            // Codex Section
+            if codexEnabled {
+                Divider()
+                    .padding(.vertical, 4)
+                
+                codexSection
+            }
         }
         .padding(16)
         .frame(width: 360)
     }
 
+    // MARK: - Antigravity Header
+
     @ViewBuilder
-    private var header: some View {
+    private var antigravityHeader: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline) {
                 Text("Antigravity")
@@ -67,7 +80,7 @@ struct StatusMenuView: View {
             }
 
             HStack(alignment: .firstTextBaseline) {
-                Text(updatedLabel)
+                Text(antigravityUpdatedLabel)
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -87,7 +100,7 @@ struct StatusMenuView: View {
         }
     }
 
-    private var updatedLabel: String {
+    private var antigravityUpdatedLabel: String {
         guard model.isSignedIn else {
             return ""
         }
@@ -101,19 +114,145 @@ struct StatusMenuView: View {
         return "Updated \(relative)"
     }
 
-/*
-    @ViewBuilder
-    private func creditsSection(_ credits: PromptCredits) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Credits")
-                .font(.headline)
+    // MARK: - Codex Section
 
-            Text("\(credits.available.formatted()) left")
-                .font(.body)
-                .monospacedDigit()
+    @ViewBuilder
+    private var codexSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("OpenAI / Codex")
+                    .font(.title3)
+                    .bold()
+
+                Spacer(minLength: 12)
+
+                if let planType = codexProvider.snapshot?.planType,
+                   let label = CodexFormatting.planLabel(planType) {
+                    Text(label)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            HStack(alignment: .firstTextBaseline) {
+                if let email = codexProvider.snapshot?.email, !email.isEmpty {
+                    Text(email)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                } else {
+                    Text(codexUpdatedLabel)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 12)
+
+                if let accountId = CodexFormatting.shortAccountId(codexProvider.snapshot?.accountId) {
+                    Text("Acct \(accountId)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            HStack(alignment: .firstTextBaseline) {
+                Text(codexUpdatedLabel)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Spacer(minLength: 12)
+
+                if !codexProvider.isRunning {
+                    Text("Not running")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
+        }
+
+        if let errorMessage = codexProvider.lastErrorMessage {
+            Text(errorMessage)
+                .font(.caption)
+                .foregroundStyle(.red)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+
+        if let codexSnapshot = codexProvider.snapshot, codexSnapshot.hasData {
+            codexLimitsSection(codexSnapshot)
+        } else if codexProvider.isRunning {
+            Text("Fetching usage data…")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        } else if codexProvider.lastErrorMessage == nil {
+            Text("Enable in Settings → OpenAI")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
-*/
+
+    private var codexUpdatedLabel: String {
+        guard let date = codexProvider.snapshot?.timestamp else {
+            return codexProvider.isRunning ? "Fetching…" : ""
+        }
+
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        let relative = formatter.localizedString(for: date, relativeTo: Date())
+        return "Updated \(relative)"
+    }
+
+    @ViewBuilder
+    private func codexLimitsSection(_ snapshot: CodexSnapshot) -> some View {
+        if let primary = snapshot.primaryLimit {
+            limitRow(
+                label: primary.windowLabel,
+                usedPercent: primary.usedPercent,
+                remainingPercent: primary.remainingPercent,
+                resetTime: primary.timeUntilReset,
+                isExhausted: primary.isExhausted
+            )
+        }
+
+        if let secondary = snapshot.secondaryLimit {
+            limitRow(
+                label: secondary.windowLabel,
+                usedPercent: secondary.usedPercent,
+                remainingPercent: secondary.remainingPercent,
+                resetTime: secondary.timeUntilReset,
+                isExhausted: secondary.isExhausted
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func limitRow(label: String, usedPercent: Int, remainingPercent: Int, resetTime: String?, isExhausted: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(.headline)
+                .lineLimit(1)
+
+            ProgressView(value: Double(remainingPercent), total: 100)
+                .progressViewStyle(.linear)
+                .tint(isExhausted ? .red : Color(.sRGB, red: 0/255, green: 122/255, blue: 255/255, opacity: 1))
+
+            HStack {
+                Text("\(remainingPercent)% left")
+                    .font(.subheadline)
+                    .monospacedDigit()
+
+                Spacer()
+
+                if let resetTime {
+                    Text("Resets \(resetTime)")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    // MARK: - Antigravity Models Section
 
     @ViewBuilder
     private func modelsSection(_ snapshot: QuotaSnapshot) -> some View {
@@ -173,4 +312,3 @@ struct StatusMenuView: View {
         return ""
     }
 }
-

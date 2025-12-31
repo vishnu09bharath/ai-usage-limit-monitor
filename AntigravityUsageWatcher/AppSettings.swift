@@ -11,10 +11,14 @@ enum AppSettingsKeys {
     static let showDebugSettings = "showDebugSettings"
     static let settingsSelectedTab = "settingsSelectedTab"
     static let debugLogsEnabled = "debugLogsEnabled"
+    
+    // Status bar display preference
+    static let statusBarProvider = "statusBarProvider"
 }
 
 enum SettingsTab: String {
     case general
+    case codex
     case advanced
     case about
 }
@@ -144,5 +148,33 @@ enum AppSettings {
             return defaultValue
         }
         return defaults.bool(forKey: key)
+    }
+    
+    // MARK: - Status Bar Provider
+    
+    static var statusBarProvider: StatusBarProvider {
+        let raw = UserDefaults.standard.string(forKey: AppSettingsKeys.statusBarProvider)
+        return StatusBarProvider(rawValue: raw ?? "") ?? .antigravity
+    }
+    
+    static func setStatusBarProvider(_ provider: StatusBarProvider) {
+        UserDefaults.standard.set(provider.rawValue, forKey: AppSettingsKeys.statusBarProvider)
+    }
+}
+
+/// Which provider to show in the menu bar status text.
+enum StatusBarProvider: String, CaseIterable, Identifiable {
+    case antigravity = "antigravity"
+    case codex = "codex"
+    case both = "both"
+    
+    var id: String { rawValue }
+    
+    var label: String {
+        switch self {
+        case .antigravity: "Antigravity"
+        case .codex: "OpenAI / Codex"
+        case .both: "Both"
+        }
     }
 }

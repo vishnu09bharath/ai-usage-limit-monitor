@@ -16,6 +16,9 @@
 		F2A000000000000000000207 /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A000000000000000000109 /* SettingsWindowController.swift */; };
 		F2A000000000000000000208 /* StatusMenuView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A00000000000000000010A /* StatusMenuView.swift */; };
 		F2A000000000000000000209 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F2A000000000000000000101 /* Assets.xcassets */; };
+		F2A00000000000000000020A /* CodexQuota.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A00000000000000000010B /* CodexQuota.swift */; };
+		F2A00000000000000000020B /* CodexProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A00000000000000000010C /* CodexProvider.swift */; };
+		F2A00000000000000000020C /* CodexSessionWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A00000000000000000010D /* CodexSessionWindowController.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -30,6 +33,9 @@
 		F2A000000000000000000108 /* SettingsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViews.swift; sourceTree = "<group>"; };
 		F2A000000000000000000109 /* SettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowController.swift; sourceTree = "<group>"; };
 		F2A00000000000000000010A /* StatusMenuView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusMenuView.swift; sourceTree = "<group>"; };
+		F2A00000000000000000010B /* CodexQuota.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexQuota.swift; sourceTree = "<group>"; };
+		F2A00000000000000000010C /* CodexProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexProvider.swift; sourceTree = "<group>"; };
+		F2A00000000000000000010D /* CodexSessionWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexSessionWindowController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -67,6 +73,9 @@
 				F2A000000000000000000103 /* AntigravityUsageWatcherApp.swift */,
 				F2A000000000000000000104 /* AntigravityUsageWatcherMain.swift */,
 				F2A000000000000000000105 /* AppSettings.swift */,
+				F2A00000000000000000010B /* CodexQuota.swift */,
+				F2A00000000000000000010C /* CodexProvider.swift */,
+				F2A00000000000000000010D /* CodexSessionWindowController.swift */,
 				F2A000000000000000000106 /* DashboardWindowController.swift */,
 				F2A000000000000000000107 /* KeychainStore.swift */,
 				F2A000000000000000000108 /* SettingsViews.swift */,
@@ -151,6 +160,9 @@
 				F2A000000000000000000201 /* AntigravityUsageWatcherApp.swift in Sources */,
 				F2A000000000000000000202 /* AntigravityUsageWatcherMain.swift in Sources */,
 				F2A000000000000000000203 /* AppSettings.swift in Sources */,
+				F2A00000000000000000020A /* CodexQuota.swift in Sources */,
+				F2A00000000000000000020B /* CodexProvider.swift in Sources */,
+				F2A00000000000000000020C /* CodexSessionWindowController.swift in Sources */,
 				F2A000000000000000000204 /* DashboardWindowController.swift in Sources */,
 				F2A000000000000000000205 /* KeychainStore.swift in Sources */,
 				F2A000000000000000000206 /* SettingsViews.swift in Sources */,

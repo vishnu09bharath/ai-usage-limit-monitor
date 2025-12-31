@@ -69,14 +69,16 @@ private extension String {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private let model = AppModel()
+    private let codexProvider = CodexProvider()
     private let settingsWindow = SettingsWindowController()
+    private let codexSessionWindow = CodexSessionWindowController()
 
     private let menu = NSMenu()
     private var isMenuOpen = false
     private var defaultsCancellable: AnyCancellable?
 
     private lazy var statusContentHostingView: NSHostingView<StatusMenuView> = {
-        let hosting = NSHostingView(rootView: StatusMenuView(model: model))
+        let hosting = NSHostingView(rootView: StatusMenuView(model: model, codexProvider: codexProvider))
         let size = hosting.fittingSize
         hosting.frame = NSRect(origin: .zero, size: NSSize(width: 360, height: max(1, size.height)))
         return hosting
@@ -93,6 +95,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         systemImage: "arrow.clockwise",
         action: #selector(refreshNow),
         keyEquivalent: "r"
+    )
+
+    private lazy var codexSessionItem = makeMenuItem(
+        title: "Codex Session…",
+        systemImage: "terminal",
+        action: #selector(openCodexSession),
+        keyEquivalent: ""
     )
 
     private lazy var switchAccountItem = makeMenuItem(
@@ -156,6 +165,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.updateMenuItems()
         }
 
+        codexProvider.onUpdate = { [weak self] in
+            self?.applyStatusBarPresentation()
+            self?.updateMenuItems()
+        }
+
         defaultsCancellable = NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
@@ -165,6 +179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         Task {
             await model.bootstrap()
+            await codexProvider.start()
         }
     }
 
@@ -216,10 +231,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
             if AppSettings.showStatusText, let primary {
                 button.image = nil
-                button.title = "\(primary.shortName) \(primary.remainingPercent)%"
+                let title = "\(primary.shortName) \(primary.remainingPercent)%"
+                button.attributedTitle = NSAttributedString(
+                    string: title,
+                    attributes: [
+                        .foregroundColor: NSColor.labelColor,
+                        .font: NSFont.systemFont(ofSize: NSFont.systemFontSize)
+                    ]
+                )
+                button.contentTintColor = nil
             } else {
                 button.image = statusBarUsageImage()
                 button.title = ""
+                button.attributedTitle = NSAttributedString(string: "")
             }
 
             button.toolTip = snapshot.tooltipText
@@ -229,7 +253,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     button.contentTintColor = .systemRed
                 } else if primary.remainingPercent < 25 {
                     button.contentTintColor = .systemOrange
-                } else {
+                } else if !AppSettings.showStatusText {
                     button.contentTintColor = nil
                 }
             } else {
@@ -277,6 +301,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(statusContentItem)
         menu.addItem(NSMenuItem.separator())
         menu.addItem(refreshItem)
+        menu.addItem(codexSessionItem)
         menu.addItem(switchAccountItem)
         menu.addItem(pinRootItem)
         menu.addItem(NSMenuItem.separator())
@@ -291,6 +316,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateMenuItems() {
         refreshItem.isHidden = !model.isSignedIn
         refreshItem.isEnabled = model.isSignedIn && !model.isRefreshing
+
+        codexSessionItem.isHidden = !CodexSettings.enabled
+        codexSessionItem.isEnabled = CodexSettings.enabled
 
         switchAccountItem.isHidden = !model.isSignedIn
         switchAccountItem.isEnabled = model.isSignedIn && !model.isRefreshing
@@ -370,6 +398,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func refreshNow() {
         Task {
             await model.refreshNow()
+            await codexProvider.refreshNow()
         }
     }
 
@@ -388,6 +417,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func openAbout() {
         AppSettings.setSelectedSettingsTab(.about)
         settingsWindow.show()
+    }
+
+    @objc private func openCodexSession() {
+        codexSessionWindow.show(provider: codexProvider)
     }
 
     @objc private func pinModel(_ sender: NSMenuItem) {
@@ -1602,6 +1635,16 @@ struct QuotaSnapshot {
 }
 
 enum QuotaParser {
+    static func parseFraction(_ value: Any?) -> Double? {
+        if let number = value as? NSNumber {
+            return number.doubleValue
+        }
+        if let string = value as? String {
+            return Double(string.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        return nil
+    }
+
     static func parseUserStatusJSON(_ data: Data) throws -> QuotaSnapshot {
         let obj = try JSONSerialization.jsonObject(with: data)
 
@@ -1665,10 +1708,11 @@ enum QuotaParser {
                 }
             }
 
-            let remainingFraction = (quotaInfo["remainingFraction"] as? NSNumber)?.doubleValue ?? 1
+            let remainingFractionRaw = QuotaParser.parseFraction(quotaInfo["remainingFraction"]) ?? 0
+            let remainingFraction = min(1, max(0, remainingFractionRaw))
             let remainingPercent = Int((remainingFraction * 100).rounded())
             let usedPercent = max(0, 100 - remainingPercent)
-            let isExhausted = remainingFraction == 0
+            let isExhausted = remainingFraction <= 0
 
             var resetTime: Date? = nil
             var timeUntilReset: String? = nil

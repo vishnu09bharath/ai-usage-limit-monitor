@@ -17,6 +17,10 @@ struct SettingsRootView: View {
                 .tabItem { Label("General", systemImage: "gearshape") }
                 .tag(SettingsTab.general)
 
+            CodexSettingsView()
+                .tabItem { Label("OpenAI", systemImage: "brain") }
+                .tag(SettingsTab.codex)
+
             AdvancedSettingsView()
                 .tabItem { Label("Advanced", systemImage: "slider.horizontal.3") }
                 .tag(SettingsTab.advanced)
@@ -26,16 +30,37 @@ struct SettingsRootView: View {
                 .tag(SettingsTab.about)
         }
         .padding(16)
-        .frame(width: 540, height: 420)
+        .frame(width: 540, height: 480)
     }
 }
 
 private struct GeneralSettingsView: View {
     @AppStorage(AppSettingsKeys.showStatusText) private var showStatusText = true
+    @AppStorage(AppSettingsKeys.statusBarProvider) private var statusBarProviderRaw = StatusBarProvider.antigravity.rawValue
+
+    private var statusBarProviderBinding: Binding<StatusBarProvider> {
+        Binding(
+            get: { StatusBarProvider(rawValue: statusBarProviderRaw) ?? .antigravity },
+            set: { statusBarProviderRaw = $0.rawValue }
+        )
+    }
 
     var body: some View {
         Form {
             Toggle("Show usage in menu bar", isOn: $showStatusText)
+
+            if showStatusText {
+                Picker("Status bar provider", selection: statusBarProviderBinding) {
+                    ForEach(StatusBarProvider.allCases) { provider in
+                        Text(provider.label).tag(provider)
+                    }
+                }
+                .pickerStyle(.segmented)
+                
+                Text("Choose which provider's usage to show in the menu bar.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             Section {
                 Text("Antigravity quotas are fetched from the local Antigravity language server.")
@@ -43,6 +68,115 @@ private struct GeneralSettingsView: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+}
+
+private struct CodexSettingsView: View {
+    @AppStorage(CodexSettingsKeys.enabled) private var codexEnabled = true
+    @AppStorage(CodexSettingsKeys.binaryPath) private var binaryPath = ""
+    @AppStorage(CodexSettingsKeys.refreshCadenceMinutes) private var refreshCadenceMinutes = CodexRefreshCadence.oneMinute.rawValue
+
+    @State private var detectedPath: String?
+
+    private var cadenceBinding: Binding<CodexRefreshCadence> {
+        Binding(
+            get: { CodexRefreshCadence(rawValue: refreshCadenceMinutes) ?? .oneMinute },
+            set: { refreshCadenceMinutes = $0.rawValue }
+        )
+    }
+
+    var body: some View {
+        Form {
+            Section("OpenAI / Codex CLI") {
+                Toggle("Enable Codex usage monitoring", isOn: $codexEnabled)
+
+                Text("Monitor your ChatGPT plan usage limits via the Codex CLI.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if codexEnabled {
+                Section("Refresh Cadence") {
+                    Picker("Refresh cadence", selection: cadenceBinding) {
+                        ForEach(CodexRefreshCadence.allCases) { cadence in
+                            Text(cadence.label).tag(cadence)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    Text("How often to fetch usage from Codex CLI. Use the Refresh button for on-demand updates.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Codex Binary") {
+                    TextField("Path to codex", text: $binaryPath, prompt: Text("Auto-detect"))
+
+                    if let detected = detectedPath {
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                            Text("Found: \(detected)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else if binaryPath.isEmpty {
+                        HStack {
+                            Image(systemName: "magnifyingglass")
+                                .foregroundStyle(.secondary)
+                            Text("Will search in /opt/homebrew/bin, /usr/local/bin, etc.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Button("Detect Codex") {
+                        detectCodexBinary()
+                    }
+                }
+
+                Section {
+                    Text("Requires Codex CLI to be installed and logged in.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    
+                    Link("Install Codex CLI", destination: URL(string: "https://github.com/openai/codex")!)
+                        .font(.caption)
+                }
+            }
+        }
+        .onAppear {
+            detectCodexBinary()
+        }
+    }
+
+    private func detectCodexBinary() {
+        let searchPaths = [
+            "/opt/homebrew/bin/codex",
+            "/usr/local/bin/codex",
+            "/usr/bin/codex",
+            "\(NSHomeDirectory())/.local/bin/codex",
+            "\(NSHomeDirectory())/bin/codex"
+        ]
+
+        for path in searchPaths {
+            if FileManager.default.isExecutableFile(atPath: path) {
+                detectedPath = path
+                return
+            }
+        }
+
+        // Try PATH
+        let pathEnv = ProcessInfo.processInfo.environment["PATH"] ?? ""
+        for dir in pathEnv.split(separator: ":") {
+            let candidate = "\(dir)/codex"
+            if FileManager.default.isExecutableFile(atPath: candidate) {
+                detectedPath = candidate
+                return
+            }
+        }
+
+        detectedPath = nil
     }
 }
 
