@@ -142,7 +142,7 @@ struct StatusMenuView: View {
 
                     ProgressView(value: Double(quota.remainingPercent), total: 100)
                         .progressViewStyle(.linear)
-                        .tint(quota.isExhausted ? .red : .teal)
+                        .tint(quota.isExhausted ? .red : Color(.sRGB, red: 0/255, green: 209/255, blue: 131/255, opacity: 1))
 
                     HStack {
                         Text("\(quota.remainingPercent)% left")
@@ -173,3 +173,4 @@ struct StatusMenuView: View {
         return ""
     }
 }
+
