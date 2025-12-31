@@ -80,9 +80,9 @@ private struct GeneralSettingsView: View {
             providers.append(.codex)
         }
 
-        if antigravityEnabled && codexEnabled {
-            providers.append(.both)
-        }
+//        if antigravityEnabled && codexEnabled {
+//            providers.append(.both)
+//        }
 
         return providers.isEmpty ? [.antigravity] : providers
     }
@@ -90,11 +90,18 @@ private struct GeneralSettingsView: View {
     var body: some View {
         ScrollView {
             Form {
-                Section("Monitoring") {
+                Section {
+                    header: do {
+                        Text("Model Options")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                    }
+                    
                     Toggle("Enable Antigravity monitoring", isOn: $antigravityEnabled)
                         .onChange(of: antigravityEnabled) { _, _ in
                             normalizeStatusBarProvider()
                         }
+                        .padding(.top, 8)
 
                     Toggle("Enable Codex monitoring", isOn: $codexEnabled)
                         .onChange(of: codexEnabled) { _, _ in
@@ -103,24 +110,25 @@ private struct GeneralSettingsView: View {
                 }
 
                 Toggle("Show usage in menu bar", isOn: $showStatusText)
+                Text("Status bar provider:")
+                    .padding(.top, 8)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .font(.headline)
 
                 if showStatusText {
                     Picker("Status bar provider", selection: statusBarProviderBinding) {
                         ForEach(availableProviders) { provider in
                             Text(provider.label).tag(provider)
                         }
-                    }
+                    }.labelsHidden()
                     .pickerStyle(.segmented)
+                    .padding(.top, 8)
+                    .frame(maxWidth: .infinity, alignment: .center)
 
-                    Text("Choose which provider's usage to show in the menu bar.")
+                    Text("Choose which provider's usage to show in the menu bar. If a particular model is pinned in the dropdown menu, that will override this option.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                }
-
-                Section {
-                    Text("If a particular model is pinned, that will override this option.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .padding(.top, 4)
                 }
             }
             .padding(.bottom, 8)
@@ -150,21 +158,25 @@ private struct CodexSettingsView: View {
     var body: some View {
         ScrollView {
             Form {
-                Section("Codex CLI") {
+                Section {
+                    header: do {
+                        Text("Codex")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                    }
                     Text("Monitor your ChatGPT plan usage limits via the Codex CLI.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                }
+                }.font(.headline).frame(maxWidth: .infinity, alignment: .center)
 
                 Section {
-                    Text("Refresh cadence")
-                        .font(.headline)
+                    Text("Refresh cadence").padding(.top, 8)
 
                     Picker("Cadence", selection: cadenceBinding) {
                         ForEach(CodexRefreshCadence.allCases) { cadence in
                             Text(cadence.label).tag(cadence)
                         }
-                    }
+                    }.labelsHidden()
                     .pickerStyle(.segmented)
 
                     Text("How often to fetch usage from Codex CLI. Use the Refresh button for on-demand updates.")
@@ -172,9 +184,11 @@ private struct CodexSettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Section("Codex Binary") {
-                    TextField("Path to codex", text: $binaryPath, prompt: Text("Auto-detect"))
-
+                Section {
+                    header: do {
+                        Text("Codex Binary Path:").padding(.top, 4)
+                    }
+                    TextField("Path to codex", text: $binaryPath, prompt: Text("Auto-detect")).labelsHidden()
                     if let detected = detectedPath {
                         HStack {
                             Image(systemName: "checkmark.circle.fill")
@@ -182,7 +196,7 @@ private struct CodexSettingsView: View {
                             Text("Found: \(detected)")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                        }
+                        }.padding(.top, 2)
                     } else if binaryPath.isEmpty {
                         HStack {
                             Image(systemName: "magnifyingglass")
@@ -195,11 +209,14 @@ private struct CodexSettingsView: View {
 
                     Button("Detect Codex") {
                         detectCodexBinary()
-                    }
+                    }.padding(.top, 2)
                 }
 
-                Section("Session") {
-                    Button("Open Codex Session") {
+                Section {
+                    header: do {
+                        Text("Session").padding(.top, 4)
+                    }
+                    Button("Open Codex Terminal Session") {
                         NotificationCenter.default.post(name: .codexOpenSession, object: nil)
                     }
                 }
@@ -274,22 +291,34 @@ private struct AntigravitySettingsView: View {
         ScrollView {
             Form {
                 Section {
-                    Text("Refresh cadence")
+                    header: do {
+                        Text("Antigravity Language Server")
                         .font(.headline)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                    }
+                    Text("Monitor your Antigravity plan usage limits via the Antigravity local language server.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .center)
+                }
+                Section {
+                    Text("Refresh cadence").padding(.top, 8)
 
                     Picker("Cadence", selection: cadenceBinding) {
                         ForEach(RefreshCadence.allCases) { cadence in
                             Text(cadence.label).tag(cadence)
                         }
-                    }
+                    }.labelsHidden()
                     .pickerStyle(.segmented)
 
-                    Text("When set to Manual, refresh only happens on demand.")
+                    Text("How often to fetch usage from Codex CLI. Use the Refresh button for on-demand updates.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
-                Section("Account") {
+                Section {
+                    header: do {
+                        Text("Account").padding(.top, 4)
+                    }
                     if antigravitySignedIn {
                         Button("Switch Account") {
                             NotificationCenter.default.post(name: .antigravitySwitchAccount, object: nil)
@@ -305,13 +334,20 @@ private struct AntigravitySettingsView: View {
                     }
                 }
 
-                Section("Menu") {
-                    Stepper(value: $maxVisibleModels, in: 1...12) {
-                        Text("Max visible models: \(maxVisibleModels)")
-                    }
-                }
+                Section {
+                    header: do {
+                        Text("Dropdown Display").padding(.top, 4)
+                        HStack{
+                            
+                            Stepper(value: $maxVisibleModels, in: 1...12) {
+                            }
+                            Text("Max visible models: \(maxVisibleModels)").padding(.top, 4)
+                        }
+                    }}
 
-                Section("Models") {
+                Section {
+                    header: do {
+                        Text("Models").padding(.top, 4)}
                     if knownModels.isEmpty {
                         Text("No models detected yet.")
                             .foregroundStyle(.secondary)
@@ -319,23 +355,23 @@ private struct AntigravitySettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else {
-                        TextField("Search models", text: $modelSearchText)
+                        
 
-                        Toggle("Show hidden models", isOn: $showHiddenOnly)
+//                        Toggle("Show hidden models", isOn: $showHiddenOnly)
 
-                        HStack {
-                            Button("Show All") {
-                                hiddenModelIds.removeAll()
-                                AppSettings.setHiddenModelIds(hiddenModelIds)
-                            }
-
-                            Button("Hide All") {
-                                hiddenModelIds = Set(knownModels.map { $0.modelId })
-                                AppSettings.setHiddenModelIds(hiddenModelIds)
-                            }
-
-                            Spacer()
-                        }
+//                        HStack {
+//                            Button("Show All") {
+//                                hiddenModelIds.removeAll()
+//                                AppSettings.setHiddenModelIds(hiddenModelIds)
+//                            }
+//
+//                            Button("Hide All") {
+//                                hiddenModelIds = Set(knownModels.map { $0.modelId })
+//                                AppSettings.setHiddenModelIds(hiddenModelIds)
+//                            }
+//
+//                            Spacer()
+//                        }
 
                         ForEach(filteredKnownModels) { known in
                             Toggle(isOn: isModelVisibleBinding(known)) {
@@ -443,7 +479,7 @@ private struct AboutSettingsView: View {
 
                 Spacer()
 
-                Text("© \(Calendar.current.component(.year, from: Date()))")
+                Text("© 2025")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -452,3 +488,10 @@ private struct AboutSettingsView: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("Settings") {
+    SettingsRootView()
+        .frame(width: 720, height: 560)
+}
+#endif
