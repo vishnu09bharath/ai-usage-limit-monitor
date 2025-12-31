@@ -151,7 +151,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
                 guard let self else { return }
                 if CodexSettings.enabled {
-                    Task { await self.codexProvider.start() }
+                    Task {
+                        await self.codexProvider.start()
+                    }
                 } else {
                     Task { await self.codexProvider.stop() }
                 }
@@ -202,7 +204,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return image
         }
 
-        return NSImage(systemSymbolName: "gauge.with.needle", accessibilityDescription: "Antigravity Usage")
+        if let image = NSImage(systemSymbolName: "gauge.with.needle", accessibilityDescription: "Antigravity Usage") {
+            image.isTemplate = true
+            return image
+        }
+
+        return nil
     }
 
     private func setupStatusBar() {
@@ -338,12 +345,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
             button.toolTip = snapshot.tooltipText
 
-            if let primary {
-                if primary.isExhausted || primary.remainingPercent < 15 {
-                    button.contentTintColor = .systemRed
-                } else if primary.remainingPercent < 25 {
-                    button.contentTintColor = .systemOrange
-                } else if !AppSettings.showStatusText {
+            if !AppSettings.showStatusText {
+                if let primary {
+                    if primary.isExhausted || primary.remainingPercent < 15 {
+                        button.contentTintColor = .systemRed
+                    } else if primary.remainingPercent < 25 {
+                        button.contentTintColor = .systemOrange
+                    } else {
+                        button.contentTintColor = nil
+                    }
+                } else {
                     button.contentTintColor = nil
                 }
             } else {

@@ -1,12 +1,12 @@
 {
   "images" : [
     {
-      "filename" : "icon2small.svg",
+      "filename" : "statusbar.png",
       "idiom" : "mac",
       "scale" : "1x"
     },
     {
-      "filename" : "data_usage_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24 1.svg",
+      "filename" : "statusbar@2x.png",
       "idiom" : "mac",
       "scale" : "2x"
     }

@@ -118,7 +118,7 @@ private struct GeneralSettingsView: View {
                 }
 
                 Section {
-                    Text("Antigravity quotas are fetched from the local Antigravity language server.")
+                    Text("If a particular model is pinned, that will override this option.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
