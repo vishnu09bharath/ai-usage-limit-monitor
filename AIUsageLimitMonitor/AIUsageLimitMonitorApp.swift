@@ -1705,13 +1705,21 @@ struct QuotaSnapshot {
 
     var modelsSortedForDisplay: [ModelQuota] {
         guard let pinnedModelId else {
-            return models.sorted { $0.remainingPercent < $1.remainingPercent }
+            return models.sorted { a, b in
+                if a.remainingPercent != b.remainingPercent {
+                    return a.remainingPercent < b.remainingPercent
+                }
+                return a.label.localizedStandardCompare(b.label) == .orderedAscending
+            }
         }
 
         return models.sorted { a, b in
             if a.modelId == pinnedModelId, b.modelId != pinnedModelId { return true }
             if a.modelId != pinnedModelId, b.modelId == pinnedModelId { return false }
-            return a.remainingPercent < b.remainingPercent
+            if a.remainingPercent != b.remainingPercent {
+                return a.remainingPercent < b.remainingPercent
+            }
+            return a.label.localizedStandardCompare(b.label) == .orderedAscending
         }
     }
 

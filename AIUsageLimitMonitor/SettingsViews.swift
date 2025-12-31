@@ -26,7 +26,7 @@ struct SettingsRootView: View {
             }
 
             if antigravityEnabled {
-                AdvancedSettingsView()
+                AntigravitySettingsView()
                     .tabItem { Label("Antigravity", systemImage: "sparkles") }
                     .tag(SettingsTab.advanced)
             }
@@ -250,7 +250,7 @@ private struct CodexSettingsView: View {
     }
 }
 
-private struct AdvancedSettingsView: View {
+private struct AntigravitySettingsView: View {
     @AppStorage(AppSettingsKeys.refreshCadenceMinutes) private var refreshCadenceMinutes = RefreshCadence.fiveMinutes.rawValue
     @AppStorage(AppSettingsKeys.maxVisibleModels) private var maxVisibleModels = 5
     @AppStorage(AppSettingsKeys.antigravitySignedIn) private var antigravitySignedIn = false
@@ -419,7 +419,7 @@ private struct AboutSettingsView: View {
                     .resizable()
                     .frame(width: 72, height: 72)
 
-                Text("AntigravityUsageWatcher")
+                Text("AI Usage Limit Monitor")
                     .font(.title3)
                     .bold()
 
