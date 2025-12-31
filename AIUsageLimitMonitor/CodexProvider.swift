@@ -57,7 +57,7 @@ final class CodexProvider: ObservableObject {
             notifyChanged()
 
             // Short wait for prompt rendering
-            try await Task.sleep(for: .seconds(0.5))
+            try await Task.sleep(nanoseconds: 2_000_000_000)
 
             // Immediate status fetch
             await refreshNow()
@@ -123,7 +123,7 @@ final class CodexProvider: ObservableObject {
         }
 
         // Wait for response
-        try? await Task.sleep(for: .seconds(5))
+        try? await Task.sleep(nanoseconds: 1_500_000_000)
 
         // Parse the output
         let output = String(decoding: outputBuffer, as: UTF8.self)
@@ -275,7 +275,7 @@ final class CodexProvider: ObservableObject {
 
         autoRefreshTask = Task { [weak self] in
             while let self, !Task.isCancelled, self.isRunning {
-                try? await Task.sleep(for: .seconds(0.1))
+                try? await Task.sleep(nanoseconds: UInt64(intervalSeconds * 1_000_000_000))
                 if Task.isCancelled { break }
                 await self.refreshNow()
             }
