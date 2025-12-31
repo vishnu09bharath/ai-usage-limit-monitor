@@ -320,12 +320,21 @@ private struct AntigravitySettingsView: View {
                         Text("Account").padding(.top, 4)
                     }
                     if antigravitySignedIn {
-                        Button("Switch Account") {
-                            NotificationCenter.default.post(name: .antigravitySwitchAccount, object: nil)
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                            Text("You are logged into your Google Antigravity account.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
                         }
-
-                        Button("Sign Out") {
-                            NotificationCenter.default.post(name: .antigravitySignOut, object: nil)
+                        HStack {
+                            Button("Switch Account") {
+                                NotificationCenter.default.post(name: .antigravitySwitchAccount, object: nil)
+                            }
+                            Button("Sign Out") {
+                                NotificationCenter.default.post(name: .antigravitySignOut, object: nil)
+                            }
                         }
                     } else {
                         Button("Sign in with Google") {
@@ -337,17 +346,19 @@ private struct AntigravitySettingsView: View {
                 Section {
                     header: do {
                         Text("Dropdown Display").padding(.top, 4)
-                        HStack{
-                            
-                            Stepper(value: $maxVisibleModels, in: 1...12) {
-                            }
-                            Text("Max visible models: \(maxVisibleModels)").padding(.top, 4)
+                    }
+                    HStack {
+                        Stepper(value: $maxVisibleModels, in: 1...12) {
+                            Text("")
                         }
-                    }}
+                        Text("Max visible models: \(maxVisibleModels)").padding(.top, 4)
+                    }
+                }
 
                 Section {
                     header: do {
-                        Text("Models").padding(.top, 4)}
+                        Text("Models").padding(.top, 4)
+                    }
                     if knownModels.isEmpty {
                         Text("No models detected yet.")
                             .foregroundStyle(.secondary)
@@ -495,3 +506,4 @@ private struct AboutSettingsView: View {
         .frame(width: 720, height: 560)
 }
 #endif
+
