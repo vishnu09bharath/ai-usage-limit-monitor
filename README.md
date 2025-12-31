@@ -1,6 +1,7 @@
 # AntigravityUsageWatcher
 
-A macOS menu bar app that shows your Antigravity quota usage.
+A macOS menu bar app that shows your Antigravity quota usage.  
+Initially forked from [this repo](https://github.com/shekohex/AntigravityUsageWatcher).
 
 ## Overview
 
