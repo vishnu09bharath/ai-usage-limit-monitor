@@ -7,8 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		F2A000000000000000000201 /* AntigravityUsageWatcherApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A000000000000000000103 /* AntigravityUsageWatcherApp.swift */; };
-		F2A000000000000000000202 /* AntigravityUsageWatcherMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A000000000000000000104 /* AntigravityUsageWatcherMain.swift */; };
+		F2A000000000000000000201 /* AIUsageLimitMonitorApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A000000000000000000103 /* AIUsageLimitMonitorApp.swift */; };
+		F2A000000000000000000202 /* AIUsageLimitMonitorMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A000000000000000000104 /* AIUsageLimitMonitorMain.swift */; };
 		F2A000000000000000000203 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A000000000000000000105 /* AppSettings.swift */; };
 		F2A000000000000000000204 /* DashboardWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A000000000000000000106 /* DashboardWindowController.swift */; };
 		F2A000000000000000000205 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A000000000000000000107 /* KeychainStore.swift */; };
@@ -22,11 +22,11 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		F285074D2EF488AA00D6800C /* AntigravityUsageWatcher.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AntigravityUsageWatcher.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F285074D2EF488AA00D6800C /* AIUsageLimitMonitor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AIUsageLimitMonitor.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F2A000000000000000000101 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		F2A000000000000000000102 /* AntigravityUsageWatcher.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AntigravityUsageWatcher.entitlements; sourceTree = "<group>"; };
-		F2A000000000000000000103 /* AntigravityUsageWatcherApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AntigravityUsageWatcherApp.swift; sourceTree = "<group>"; };
-		F2A000000000000000000104 /* AntigravityUsageWatcherMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AntigravityUsageWatcherMain.swift; sourceTree = "<group>"; };
+		F2A000000000000000000102 /* AIUsageLimitMonitor.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AIUsageLimitMonitor.entitlements; sourceTree = "<group>"; };
+		F2A000000000000000000103 /* AIUsageLimitMonitorApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIUsageLimitMonitorApp.swift; sourceTree = "<group>"; };
+		F2A000000000000000000104 /* AIUsageLimitMonitorMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIUsageLimitMonitorMain.swift; sourceTree = "<group>"; };
 		F2A000000000000000000105 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
 		F2A000000000000000000106 /* DashboardWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardWindowController.swift; sourceTree = "<group>"; };
 		F2A000000000000000000107 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
@@ -52,7 +52,7 @@
 		F28507442EF488AA00D6800C = {
 			isa = PBXGroup;
 			children = (
-				F2A000000000000000000100 /* AntigravityUsageWatcher */,
+				F2A000000000000000000100 /* AIUsageLimitMonitor */,
 				F285074E2EF488AA00D6800C /* Products */,
 			);
 			sourceTree = "<group>";
@@ -60,18 +60,18 @@
 		F285074E2EF488AA00D6800C /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				F285074D2EF488AA00D6800C /* AntigravityUsageWatcher.app */,
+				F285074D2EF488AA00D6800C /* AIUsageLimitMonitor.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		};
-		F2A000000000000000000100 /* AntigravityUsageWatcher */ = {
+		F2A000000000000000000100 /* AIUsageLimitMonitor */ = {
 			isa = PBXGroup;
 			children = (
 				F2A000000000000000000101 /* Assets.xcassets */,
-				F2A000000000000000000102 /* AntigravityUsageWatcher.entitlements */,
-				F2A000000000000000000103 /* AntigravityUsageWatcherApp.swift */,
-				F2A000000000000000000104 /* AntigravityUsageWatcherMain.swift */,
+				F2A000000000000000000102 /* AIUsageLimitMonitor.entitlements */,
+				F2A000000000000000000103 /* AIUsageLimitMonitorApp.swift */,
+				F2A000000000000000000104 /* AIUsageLimitMonitorMain.swift */,
 				F2A000000000000000000105 /* AppSettings.swift */,
 				F2A00000000000000000010B /* CodexQuota.swift */,
 				F2A00000000000000000010C /* CodexProvider.swift */,
@@ -82,15 +82,15 @@
 				F2A000000000000000000109 /* SettingsWindowController.swift */,
 				F2A00000000000000000010A /* StatusMenuView.swift */,
 			);
-			path = AntigravityUsageWatcher;
+			path = AIUsageLimitMonitor;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		F285074C2EF488AA00D6800C /* AntigravityUsageWatcher */ = {
+		F285074C2EF488AA00D6800C /* AIUsageLimitMonitor */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = F28507582EF488AB00D6800C /* Build configuration list for PBXNativeTarget "AntigravityUsageWatcher" */;
+			buildConfigurationList = F28507582EF488AB00D6800C /* Build configuration list for PBXNativeTarget "AIUsageLimitMonitor" */;
 			buildPhases = (
 				F28507492EF488AA00D6800C /* Sources */,
 				F285074A2EF488AA00D6800C /* Frameworks */,
@@ -100,11 +100,11 @@
 			);
 			dependencies = (
 			);
-			name = AntigravityUsageWatcher;
+			name = AIUsageLimitMonitor;
 			packageProductDependencies = (
 			);
 			productName = AngravityUsageWatcher;
-			productReference = F285074D2EF488AA00D6800C /* AntigravityUsageWatcher.app */;
+			productReference = F285074D2EF488AA00D6800C /* AIUsageLimitMonitor.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -122,7 +122,7 @@
 					};
 				};
 			};
-			buildConfigurationList = F28507482EF488AA00D6800C /* Build configuration list for PBXProject "AntigravityUsageWatcher" */;
+			buildConfigurationList = F28507482EF488AA00D6800C /* Build configuration list for PBXProject "AIUsageLimitMonitor" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -136,7 +136,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				F285074C2EF488AA00D6800C /* AntigravityUsageWatcher */,
+				F285074C2EF488AA00D6800C /* AIUsageLimitMonitor */,
 			);
 		};
 /* End PBXProject section */
@@ -157,8 +157,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				F2A000000000000000000201 /* AntigravityUsageWatcherApp.swift in Sources */,
-				F2A000000000000000000202 /* AntigravityUsageWatcherMain.swift in Sources */,
+				F2A000000000000000000201 /* AIUsageLimitMonitorApp.swift in Sources */,
+				F2A000000000000000000202 /* AIUsageLimitMonitorMain.swift in Sources */,
 				F2A000000000000000000203 /* AppSettings.swift in Sources */,
 				F2A00000000000000000020A /* CodexQuota.swift in Sources */,
 				F2A00000000000000000020B /* CodexProvider.swift in Sources */,
@@ -299,7 +299,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = AntigravityUsageWatcher/AntigravityUsageWatcher.entitlements;
+				CODE_SIGN_ENTITLEMENTS = AIUsageLimitMonitor/AIUsageLimitMonitor.entitlements;
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -310,6 +310,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "AI Usage Limit Monitor";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -317,8 +318,8 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.github.shekohex.AntigravityUsageWatcher;
+				MARKETING_VERSION = 1.1;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.github.vishnu09bharath.ai-usage-limit-monitor";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -335,7 +336,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = AntigravityUsageWatcher/AntigravityUsageWatcher.entitlements;
+				CODE_SIGN_ENTITLEMENTS = AIUsageLimitMonitor/AIUsageLimitMonitor.entitlements;
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -346,6 +347,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "AI Usage Limit Monitor";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -353,8 +355,8 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.github.shekohex.AntigravityUsageWatcher;
+				MARKETING_VERSION = 1.1;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.github.vishnu09bharath.ai-usage-limit-monitor";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -369,7 +371,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		F28507482EF488AA00D6800C /* Build configuration list for PBXProject "AntigravityUsageWatcher" */ = {
+		F28507482EF488AA00D6800C /* Build configuration list for PBXProject "AIUsageLimitMonitor" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				F28507562EF488AB00D6800C /* Debug */,
@@ -378,7 +380,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		F28507582EF488AB00D6800C /* Build configuration list for PBXNativeTarget "AntigravityUsageWatcher" */ = {
+		F28507582EF488AB00D6800C /* Build configuration list for PBXNativeTarget "AIUsageLimitMonitor" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				F28507592EF488AB00D6800C /* Debug */,

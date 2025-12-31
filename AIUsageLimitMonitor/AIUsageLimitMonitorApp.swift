@@ -9,7 +9,7 @@ import Security
 import SwiftUI
 
 enum AppLog {
-    static let subsystem = Bundle.main.bundleIdentifier ?? "com.github.shekohex.AntigravityUsageWatcher"
+    static let subsystem = Bundle.main.bundleIdentifier ?? "com.github.vishnu09bharath.ai-usage-limit-monitor"
 
     static let app = Logger(subsystem: subsystem, category: "app")
     static let oauth = Logger(subsystem: subsystem, category: "oauth")

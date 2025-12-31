@@ -16,9 +16,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "F285074C2EF488AA00D6800C"
-               BuildableName = "AntigravityUsageWatcher.app"
-               BlueprintName = "AntigravityUsageWatcher"
-               ReferencedContainer = "container:AntigravityUsageWatcher.xcodeproj">
+               BuildableName = "AIUsageLimitMonitor.app"
+               BlueprintName = "AIUsageLimitMonitor"
+               ReferencedContainer = "container:AIUsageLimitMonitor.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -45,9 +45,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "F285074C2EF488AA00D6800C"
-            BuildableName = "AntigravityUsageWatcher.app"
-            BlueprintName = "AntigravityUsageWatcher"
-            ReferencedContainer = "container:AntigravityUsageWatcher.xcodeproj">
+            BuildableName = "AIUsageLimitMonitor.app"
+            BlueprintName = "AIUsageLimitMonitor"
+            ReferencedContainer = "container:AIUsageLimitMonitor.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -62,9 +62,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "F285074C2EF488AA00D6800C"
-            BuildableName = "AntigravityUsageWatcher.app"
-            BlueprintName = "AntigravityUsageWatcher"
-            ReferencedContainer = "container:AntigravityUsageWatcher.xcodeproj">
+            BuildableName = "AIUsageLimitMonitor.app"
+            BlueprintName = "AIUsageLimitMonitor"
+            ReferencedContainer = "container:AIUsageLimitMonitor.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

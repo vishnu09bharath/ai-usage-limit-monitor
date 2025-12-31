@@ -428,7 +428,7 @@ private struct AboutSettingsView: View {
                     .foregroundStyle(.secondary)
 
                 VStack(spacing: 8) {
-                    Link(destination: URL(string: "https://github.com/shekohex/AntigravityUsageWatcher")!) {
+                    Link(destination: URL(string: "https://github.com/vishnu09bharath/ai-usage-limit-monitor")!) {
                         Label("GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
                     }
                 }

@@ -23,7 +23,7 @@ final class CodexProvider: ObservableObject {
     private var autoRefreshTask: Task<Void, Never>?
     private var statusRequestCount = 0
 
-    private let log = Logger(subsystem: "com.github.shekohex.AntigravityUsageWatcher", category: "codex")
+    private let log = Logger(subsystem: "com.github.vishnu09bharath.ai-usage-limit-monitor", category: "codex")
 
     init() {}
 
