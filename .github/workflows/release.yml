@@ -1,0 +1,76 @@
+name: Manual Release Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-dmg:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Build Release
+        run: xcodebuild -scheme AIUsageLimitMonitor -configuration Release -derivedDataPath build clean build
+
+      - name: Resolve version
+        id: version
+        run: |
+          python3 - <<'PY'
+          import subprocess
+          output = subprocess.check_output(
+              ["xcodebuild", "-showBuildSettings", "-scheme", "AIUsageLimitMonitor", "-configuration", "Release"],
+              text=True,
+          )
+          settings = {}
+          for line in output.splitlines():
+            if " = " in line:
+              key, value = line.split(" = ", 1)
+              settings[key.strip()] = value.strip()
+          version = settings.get("MARKETING_VERSION")
+          build = settings.get("CURRENT_PROJECT_VERSION")
+          if not version:
+            raise SystemExit("MARKETING_VERSION not found")
+          if build:
+            print(f"version={version}-{build}")
+          else:
+            print(f"version={version}")
+          PY
+
+      - name: Stage app
+        run: |
+          APP_PATH="build/Build/Products/Release/AIUsageLimitMonitor.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "App not found at $APP_PATH"
+            exit 1
+          fi
+          rm -rf dist
+          mkdir -p dist/AIUsageLimitMonitor
+          cp -R "$APP_PATH" dist/AIUsageLimitMonitor/
+          ln -s /Applications dist/AIUsageLimitMonitor/Applications
+
+      - name: Create DMG
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if [ -z "$VERSION" ]; then
+            echo "Version not resolved"
+            exit 1
+          fi
+          create-dmg \
+            --volname "AIUsageLimitMonitor" \
+            --window-pos 200 120 \
+            --window-size 640 400 \
+            --icon-size 120 \
+            --icon "AIUsageLimitMonitor.app" 180 190 \
+            --app-drop-link 460 190 \
+            "AIUsageLimitMonitor-${VERSION}.dmg" \
+            "dist/AIUsageLimitMonitor"
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: AIUsageLimitMonitor-dmg
+          path: AIUsageLimitMonitor-*.dmg
