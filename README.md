@@ -5,7 +5,8 @@
 <p align="center">
   A macOS menu bar app that shows your Antigravity & Codex quota usage, with more providers coming soon.<br><br>
   <img src="docs/menubar.png" width="50%" height="50%">
-</p>
+</p>  
+
 This project was initially forked from [this repo](https://github.com/shekohex/AntigravityUsageWatcher).
 
 ## Overview
